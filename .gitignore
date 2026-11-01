@@ -44,3 +44,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/01_ARCHITECTURE.md
+/02_UI_DESIGN_WORKFLOW.md
+/03_DEVELOPMENT_PHASES.md
+/04_PRD.md
