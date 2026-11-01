@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   Menu,
@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { useToast } from "@/components/ui/Toast";
 import { useCurrentUser } from "@/lib/auth/useCurrentUser";
+import { WorkspaceMemberInfo } from "@/lib/api/workspaces";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -33,8 +34,26 @@ export function AppShell({
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [members, setMembers] = useState<WorkspaceMemberInfo[]>([]);
   const { addToast } = useToast();
   const { user, logout } = useCurrentUser();
+
+  useEffect(() => {
+    let isMounted = true;
+    if (isShareModalOpen && workspaceId) {
+      fetch(`/api/workspaces/${workspaceId}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (isMounted && data?.workspace?.members) {
+            setMembers(data.workspace.members);
+          }
+        })
+        .catch(() => {});
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [isShareModalOpen, workspaceId]);
 
   const userInitials = user?.name
     ? user.name
@@ -226,66 +245,62 @@ export function AppShell({
           {/* Members & Roles List */}
           <div className="space-y-2">
             <div className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">
-              Workspace Members (Phase 2 Mock)
+              Workspace Members ({members.length > 0 ? members.length : 1})
             </div>
 
-            <div className="divide-y divide-[#e9e9e7] border border-[#e9e9e7] rounded-lg overflow-hidden">
-              <div className="p-2.5 bg-white flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-semibold">
-                    {userInitials}
+            <div className="divide-y divide-[#e9e9e7] border border-[#e9e9e7] rounded-lg overflow-hidden max-h-56 overflow-y-auto">
+              {members.length > 0 ? (
+                members.map((member) => {
+                  const isCurrent = user?.id === member.userId;
+                  const initials = member.name
+                    ? member.name
+                        .split(" ")
+                        .map((n) => n[0])
+                        .join("")
+                        .toUpperCase()
+                        .slice(0, 2)
+                    : "M";
+                  return (
+                    <div key={member.id} className="p-2.5 bg-white flex items-center justify-between">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-semibold shrink-0">
+                          {initials}
+                        </div>
+                        <div className="min-w-0">
+                          <span className="text-xs font-medium text-[#37352f] block truncate">
+                            {member.name} {isCurrent && "(You)"}
+                          </span>
+                          <span className="text-[11px] text-neutral-400 block truncate">
+                            {member.email}
+                          </span>
+                        </div>
+                      </div>
+                      <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-blue-50 text-[#2383e2] border border-blue-200 shrink-0">
+                        {member.role}
+                      </span>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="p-2.5 bg-white flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-semibold">
+                      {userInitials}
+                    </div>
+                    <div>
+                      <span className="text-xs font-medium text-[#37352f] block">
+                        {user?.name || "Intern Engineer"} (You)
+                      </span>
+                      <span className="text-[11px] text-neutral-400">
+                        {user?.email || "owner@workspace.dev"}
+                      </span>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-xs font-medium text-[#37352f] block">
-                      {user?.name || "Intern Engineer"} (You)
-                    </span>
-                    <span className="text-[11px] text-neutral-400">
-                      {user?.email || "owner@workspace.dev"}
-                    </span>
-                  </div>
+                  <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-blue-50 text-[#2383e2] border border-blue-200">
+                    Owner
+                  </span>
                 </div>
-                <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-blue-50 text-[#2383e2] border border-blue-200">
-                  Owner
-                </span>
-              </div>
-
-              <div className="p-2.5 bg-white flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-6 h-6 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-semibold">
-                    AR
-                  </div>
-                  <div>
-                    <span className="text-xs font-medium text-[#37352f] block">
-                      Alex Rivera
-                    </span>
-                    <span className="text-[11px] text-neutral-400">
-                      alex@workspace.dev
-                    </span>
-                  </div>
-                </div>
-                <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-neutral-100 text-neutral-600">
-                  Editor
-                </span>
-              </div>
-
-              <div className="p-2.5 bg-white flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs font-semibold">
-                    SC
-                  </div>
-                  <div>
-                    <span className="text-xs font-medium text-[#37352f] block">
-                      Sarah Chen
-                    </span>
-                    <span className="text-[11px] text-neutral-400">
-                      sarah@workspace.dev
-                    </span>
-                  </div>
-                </div>
-                <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-neutral-100 text-neutral-600">
-                  Commenter
-                </span>
-              </div>
+              )}
             </div>
           </div>
 

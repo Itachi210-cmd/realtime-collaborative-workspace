@@ -16,6 +16,7 @@ import { PageTree } from "./PageTree";
 import { Dialog } from "@/components/ui/Dialog";
 import { Input } from "@/components/ui/Input";
 import { useCurrentUser } from "@/lib/auth/useCurrentUser";
+import { PageItem, getWorkspacePages } from "@/lib/api/workspaces";
 
 interface WorkspaceSidebarProps {
   workspaceId?: string;
@@ -34,6 +35,21 @@ export function WorkspaceSidebar({
   const { user, logout } = useCurrentUser();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [pages, setPages] = useState<PageItem[]>([]);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (isSearchOpen && workspaceId) {
+      getWorkspacePages(workspaceId)
+        .then((data) => {
+          if (isMounted) setPages(data);
+        })
+        .catch(() => {});
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [isSearchOpen, workspaceId]);
 
   const userInitials = user?.name
     ? user.name
@@ -175,36 +191,33 @@ export function WorkspaceSidebar({
 
           <div className="space-y-1">
             <span className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">
-              Quick Links
+              Documents ({pages.length})
             </span>
-            <div className="space-y-1">
-              {[
-                { id: "getting-started", title: "Getting Started", icon: "🚀" },
-                { id: "quickstart", title: "Quickstart Guide", icon: "⚡" },
-                { id: "architecture-overview", title: "Architecture Blueprint", icon: "📐" },
-                { id: "project-spec", title: "Project Blueprint", icon: "📚" },
-                { id: "crdt-spec", title: "CRDT & Yjs Synchronization", icon: "🔄" },
-                { id: "schema-spec", title: "PostgreSQL Data Models", icon: "🗄️" },
-                { id: "meeting-notes", title: "Engineering Sync", icon: "📝" },
-                { id: "sprint-roadmap", title: "Sprint Goals & Milestones", icon: "🎯" },
-              ]
-                .filter((item) =>
-                  item.title.toLowerCase().includes(searchQuery.toLowerCase())
-                )
-                .map((item) => (
-                  <Link
-                    key={item.id}
-                    href={`/workspace/${workspaceId}?page=${item.id}`}
-                    onClick={() => {
-                      setIsSearchOpen(false);
-                      setSearchQuery("");
-                    }}
-                    className="flex items-center gap-2.5 px-3 py-2 rounded-md hover:bg-[#f7f7f5] text-xs text-[#37352f] transition-colors"
-                  >
-                    <span className="text-sm shrink-0">{item.icon}</span>
-                    <span className="font-medium flex-1 truncate">{item.title}</span>
-                  </Link>
-                ))}
+            <div className="space-y-1 max-h-56 overflow-y-auto">
+              {pages.length === 0 ? (
+                <p className="text-xs text-neutral-400 py-2 text-center">
+                  No documents in this workspace.
+                </p>
+              ) : (
+                pages
+                  .filter((item) =>
+                    item.title.toLowerCase().includes(searchQuery.toLowerCase())
+                  )
+                  .map((item) => (
+                    <Link
+                      key={item.id}
+                      href={`/workspace/${workspaceId}?page=${item.id}`}
+                      onClick={() => {
+                        setIsSearchOpen(false);
+                        setSearchQuery("");
+                      }}
+                      className="flex items-center gap-2.5 px-3 py-2 rounded-md hover:bg-[#f7f7f5] text-xs text-[#37352f] transition-colors"
+                    >
+                      <span className="text-sm shrink-0">📄</span>
+                      <span className="font-medium flex-1 truncate">{item.title}</span>
+                    </Link>
+                  ))
+              )}
             </div>
           </div>
         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, Suspense } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import {
@@ -10,53 +10,53 @@ import {
   Edit2,
   Trash2,
   FileText,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { useToast } from "@/components/ui/Toast";
+import {
+  PageItem,
+  getWorkspacePages,
+  createPage,
+  renamePage,
+  deletePage,
+} from "@/lib/api/workspaces";
 
 export interface PageNode {
   id: string;
   title: string;
   icon?: string;
+  parentPageId?: string | null;
   children?: PageNode[];
 }
 
-const INITIAL_PAGE_TREE: PageNode[] = [
-  {
-    id: "getting-started",
-    title: "Getting Started",
-    icon: "🚀",
-    children: [
-      { id: "quickstart", title: "Quickstart Guide", icon: "⚡" },
-      { id: "architecture-overview", title: "Architecture Blueprint", icon: "📐" },
-    ],
-  },
-  {
-    id: "project-spec",
-    title: "Project Blueprint",
-    icon: "📚",
-    children: [
-      { id: "crdt-spec", title: "CRDT & Yjs Synchronization", icon: "🔄" },
-      { id: "schema-spec", title: "PostgreSQL Data Models", icon: "🗄️" },
-    ],
-  },
-  {
-    id: "meeting-notes",
-    title: "Engineering Sync",
-    icon: "📝",
-  },
-  {
-    id: "sprint-roadmap",
-    title: "Sprint Goals & Milestones",
-    icon: "🎯",
-  },
-];
+function buildPageTree(items: PageItem[]): PageNode[] {
+  const itemMap = new Map<string, PageNode>();
+  const rootNodes: PageNode[] = [];
 
-interface PageTreeProps {
-  workspaceId: string;
+  for (const item of items) {
+    itemMap.set(item.id, {
+      id: item.id,
+      title: item.title,
+      icon: "📄",
+      parentPageId: item.parentPageId,
+      children: [],
+    });
+  }
+
+  for (const item of items) {
+    const node = itemMap.get(item.id)!;
+    if (item.parentPageId && itemMap.has(item.parentPageId)) {
+      itemMap.get(item.parentPageId)!.children!.push(node);
+    } else {
+      rootNodes.push(node);
+    }
+  }
+
+  return rootNodes;
 }
 
 function collectPageIds(nodes: PageNode[]): string[] {
@@ -70,6 +70,10 @@ function collectPageIds(nodes: PageNode[]): string[] {
   return ids;
 }
 
+interface PageTreeProps {
+  workspaceId: string;
+}
+
 function PageTreeInner({ workspaceId }: PageTreeProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -77,17 +81,37 @@ function PageTreeInner({ workspaceId }: PageTreeProps) {
   const currentPageId = searchParams.get("page") || "";
   const { addToast } = useToast();
 
-  const [pages, setPages] = useState<PageNode[]>(INITIAL_PAGE_TREE);
-  const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({
-    "getting-started": true,
-    "project-spec": false,
-  });
+  const [rawPages, setRawPages] = useState<PageItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
 
   // Action dialog state
   const [activeActionNode, setActiveActionNode] = useState<PageNode | null>(null);
   const [actionType, setActionType] = useState<"rename" | "delete" | "create" | null>(null);
   const [parentNodeId, setParentNodeId] = useState<string | null>(null);
   const [inputVal, setInputVal] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    let isMounted = true;
+    getWorkspacePages(workspaceId)
+      .then((data) => {
+        if (isMounted) {
+          setRawPages(data);
+          setIsLoading(false);
+        }
+      })
+      .catch(() => {
+        if (isMounted) setIsLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [workspaceId]);
+
+  const treeNodes = buildPageTree(rawPages);
 
   const toggleExpand = (id: string, e: React.MouseEvent) => {
     e.preventDefault();
@@ -121,108 +145,114 @@ function PageTreeInner({ workspaceId }: PageTreeProps) {
     setActionType("create");
   };
 
-  const handleExecuteAction = () => {
+  const handleExecuteAction = async () => {
+    if (isSubmitting) return;
+
     if (actionType === "rename" && activeActionNode) {
-      const updateTitle = (nodes: PageNode[]): PageNode[] =>
-        nodes.map((node) => {
-          if (node.id === activeActionNode.id) {
-            return { ...node, title: inputVal.trim() || node.title };
-          }
-          if (node.children) {
-            return { ...node, children: updateTitle(node.children) };
-          }
-          return node;
+      const trimmed = inputVal.trim();
+      if (!trimmed) return;
+      setIsSubmitting(true);
+      try {
+        const updated = await renamePage(workspaceId, activeActionNode.id, trimmed);
+        setRawPages((prev) =>
+          prev.map((p) => (p.id === updated.id ? { ...p, title: updated.title } : p))
+        );
+        addToast({
+          message: "Page renamed",
+          description: `Renamed to "${updated.title}"`,
+          variant: "success",
         });
-
-      setPages(updateTitle(pages));
-      addToast({
-        message: "Page renamed",
-        description: `Renamed to "${inputVal.trim()}"`,
-        variant: "success",
-      });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Failed to rename page";
+        addToast({
+          message: "Error renaming page",
+          description: msg,
+          variant: "error",
+        });
+      } finally {
+        setIsSubmitting(false);
+        setActionType(null);
+        setActiveActionNode(null);
+      }
     } else if (actionType === "delete" && activeActionNode) {
-      const removeNode = (nodes: PageNode[]): PageNode[] =>
-        nodes
-          .filter((node) => node.id !== activeActionNode.id)
-          .map((node) => {
-            if (node.children) {
-              return { ...node, children: removeNode(node.children) };
-            }
-            return node;
-          });
+      setIsSubmitting(true);
+      try {
+        await deletePage(workspaceId, activeActionNode.id);
+        const updatedRaw = rawPages.filter(
+          (p) => p.id !== activeActionNode.id && p.parentPageId !== activeActionNode.id
+        );
+        setRawPages(updatedRaw);
 
-      const updatedPages = removeNode(pages);
-      setPages(updatedPages);
-
-      // Check if the deleted page was currently active in the view
-      const wasActivePage = activeActionNode.id === currentPageId;
-      if (wasActivePage) {
-        const remainingIds = collectPageIds(updatedPages);
-        if (remainingIds.length > 0) {
-          // Navigate cleanly to the next available page
-          router.push(`/workspace/${workspaceId}?page=${remainingIds[0]}`);
-          addToast({
-            message: "Active page deleted",
-            description: `Navigated to remaining page.`,
-            variant: "info",
-          });
+        // Check if the deleted page was currently active in the view
+        const wasActivePage = activeActionNode.id === currentPageId;
+        if (wasActivePage) {
+          const remainingTree = buildPageTree(updatedRaw);
+          const remainingIds = collectPageIds(remainingTree);
+          if (remainingIds.length > 0) {
+            router.push(`/workspace/${workspaceId}?page=${remainingIds[0]}`);
+            addToast({
+              message: "Active page deleted",
+              description: "Navigated to remaining page.",
+              variant: "info",
+            });
+          } else {
+            router.push(`/workspace/${workspaceId}`);
+            addToast({
+              message: "Page deleted",
+              description: "No remaining pages in this workspace.",
+              variant: "info",
+            });
+          }
         } else {
-          // No pages remain in workspace
-          router.push(`/workspace/${workspaceId}`);
           addToast({
             message: "Page deleted",
-            description: "No remaining pages in this workspace.",
+            description: `Removed "${activeActionNode.title}"`,
             variant: "info",
           });
         }
-      } else {
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Failed to delete page";
         addToast({
-          message: "Page deleted",
-          description: `Removed "${activeActionNode.title}"`,
-          variant: "info",
+          message: "Error deleting page",
+          description: msg,
+          variant: "error",
         });
+      } finally {
+        setIsSubmitting(false);
+        setActionType(null);
+        setActiveActionNode(null);
       }
     } else if (actionType === "create") {
-      const newPageId = `page-${Date.now().toString().slice(-4)}`;
-      const newPage: PageNode = {
-        id: newPageId,
-        title: inputVal.trim() || "Untitled Document",
-        icon: "📄",
-      };
+      const title = inputVal.trim() || "Untitled Document";
+      setIsSubmitting(true);
+      try {
+        const created = await createPage(workspaceId, title, parentNodeId);
+        setRawPages((prev) => [...prev, created]);
 
-      if (!parentNodeId) {
-        setPages((prev) => [...prev, newPage]);
-      } else {
-        const insertChild = (nodes: PageNode[]): PageNode[] =>
-          nodes.map((node) => {
-            if (node.id === parentNodeId) {
-              return {
-                ...node,
-                children: [...(node.children || []), newPage],
-              };
-            }
-            if (node.children) {
-              return { ...node, children: insertChild(node.children) };
-            }
-            return node;
-          });
+        if (parentNodeId) {
+          setExpandedNodes((prev) => ({ ...prev, [parentNodeId]: true }));
+        }
 
-        setPages(insertChild(pages));
-        setExpandedNodes((prev) => ({ ...prev, [parentNodeId]: true }));
+        router.push(`/workspace/${workspaceId}?page=${created.id}`);
+
+        addToast({
+          message: "Page created",
+          description: `Created and opened "${created.title}"`,
+          variant: "success",
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Failed to create page";
+        addToast({
+          message: "Error creating page",
+          description: msg,
+          variant: "error",
+        });
+      } finally {
+        setIsSubmitting(false);
+        setActionType(null);
+        setActiveActionNode(null);
       }
-
-      // Navigate immediately to the newly created page
-      router.push(`/workspace/${workspaceId}?page=${newPageId}`);
-
-      addToast({
-        message: "Page created",
-        description: `Created and opened "${newPage.title}"`,
-        variant: "success",
-      });
     }
-
-    setActionType(null);
-    setActiveActionNode(null);
   };
 
   const renderNode = (node: PageNode, depth = 0) => {
@@ -318,26 +348,37 @@ function PageTreeInner({ workspaceId }: PageTreeProps) {
         </button>
       </div>
 
-      {/* Pages List or Empty State */}
-      {pages.length === 0 ? (
+      {/* Pages List or Empty / Loading State */}
+      {isLoading ? (
+        <div className="px-2 py-3 space-y-1">
+          <div className="h-4 w-28 bg-[#efefed] rounded animate-pulse" />
+          <div className="h-6 w-full bg-[#efefed] rounded animate-pulse" />
+          <div className="h-6 w-full bg-[#efefed] rounded animate-pulse" />
+        </div>
+      ) : treeNodes.length === 0 ? (
         <div className="px-2 py-4 text-center space-y-1.5 bg-neutral-50/60 rounded-md border border-dashed border-neutral-200">
           <FileText className="w-4 h-4 text-neutral-400 mx-auto" />
           <p className="text-[11px] text-neutral-500">No pages yet</p>
           <button
             onClick={(e) => handleOpenCreate(null, e)}
-            className="text-[11px] font-medium text-[#2383e2] hover:underline"
+            className="text-[11px] font-medium text-[#2383e2] hover:underline cursor-pointer"
           >
             + Add a page
           </button>
         </div>
       ) : (
-        <nav className="space-y-0.5">{pages.map((node) => renderNode(node, 0))}</nav>
+        <nav className="space-y-0.5">{treeNodes.map((node) => renderNode(node, 0))}</nav>
       )}
 
       {/* Action Dialog (Rename / Delete / Create) */}
       <Dialog
         isOpen={actionType !== null}
-        onClose={() => setActionType(null)}
+        onClose={() => {
+          if (!isSubmitting) {
+            setActionType(null);
+            setActiveActionNode(null);
+          }
+        }}
         title={
           actionType === "rename"
             ? "Rename Page"
@@ -357,7 +398,11 @@ function PageTreeInner({ workspaceId }: PageTreeProps) {
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => setActionType(null)}
+              onClick={() => {
+                setActionType(null);
+                setActiveActionNode(null);
+              }}
+              disabled={isSubmitting}
             >
               Cancel
             </Button>
@@ -365,19 +410,27 @@ function PageTreeInner({ workspaceId }: PageTreeProps) {
               variant={actionType === "delete" ? "danger" : "primary"}
               size="sm"
               onClick={handleExecuteAction}
+              disabled={isSubmitting}
             >
-              {actionType === "rename"
-                ? "Rename"
-                : actionType === "delete"
-                ? "Confirm Delete"
-                : "Create Page"}
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  <span>Processing...</span>
+                </>
+              ) : actionType === "rename" ? (
+                "Rename"
+              ) : actionType === "delete" ? (
+                "Confirm Delete"
+              ) : (
+                "Create Page"
+              )}
             </Button>
           </>
         }
       >
         {actionType === "delete" ? (
           <p className="text-xs text-neutral-600">
-            Deleting this page will remove it from the workspace page tree navigation. If it is currently open, you will be redirected to the next available page.
+            Deleting this page will remove it and any nested subpages from the database.
           </p>
         ) : (
           <form
@@ -393,6 +446,7 @@ function PageTreeInner({ workspaceId }: PageTreeProps) {
               placeholder="e.g. Sprint Planning, Project Specs"
               value={inputVal}
               onChange={(e) => setInputVal(e.target.value)}
+              disabled={isSubmitting}
               autoFocus
             />
           </form>

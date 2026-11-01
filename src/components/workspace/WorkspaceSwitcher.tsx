@@ -1,115 +1,133 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   Check,
   ChevronDown,
   Plus,
+  Loader2,
 } from "lucide-react";
 import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { useToast } from "@/components/ui/Toast";
-
-export interface WorkspaceItem {
-  id: string;
-  name: string;
-  plan: string;
-  membersCount: number;
-  role: string;
-  avatarLetter: string;
-  color: string;
-}
-
-const DEFAULT_WORKSPACES: WorkspaceItem[] = [
-  {
-    id: "ws-main",
-    name: "Engineering Workspace",
-    plan: "Free Plan",
-    membersCount: 4,
-    role: "Owner",
-    avatarLetter: "E",
-    color: "bg-[#2383e2]",
-  },
-  {
-    id: "ws-design",
-    name: "Product & Design",
-    plan: "Free Plan",
-    membersCount: 8,
-    role: "Editor",
-    avatarLetter: "P",
-    color: "bg-purple-600",
-  },
-  {
-    id: "ws-notes",
-    name: "Internship Notes",
-    plan: "Personal",
-    membersCount: 1,
-    role: "Owner",
-    avatarLetter: "I",
-    color: "bg-emerald-600",
-  },
-];
+import {
+  WorkspaceSummary,
+  getWorkspaces,
+  createWorkspace,
+} from "@/lib/api/workspaces";
 
 interface WorkspaceSwitcherProps {
   currentWorkspaceId?: string;
   onWorkspaceChange?: (workspaceId: string) => void;
 }
 
+const AVATAR_COLORS = [
+  "bg-[#2383e2]",
+  "bg-purple-600",
+  "bg-emerald-600",
+  "bg-amber-600",
+  "bg-rose-600",
+  "bg-indigo-600",
+];
+
+function getColorForId(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = (hash << 5) - hash + id.charCodeAt(i);
+  }
+  const index = Math.abs(hash) % AVATAR_COLORS.length;
+  return AVATAR_COLORS[index];
+}
+
 export function WorkspaceSwitcher({
-  currentWorkspaceId = "ws-main",
+  currentWorkspaceId = "",
   onWorkspaceChange,
 }: WorkspaceSwitcherProps) {
   const router = useRouter();
   const { addToast } = useToast();
-  const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>(DEFAULT_WORKSPACES);
+  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string>(currentWorkspaceId);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
 
+  useEffect(() => {
+    let isMounted = true;
+    getWorkspaces()
+      .then((list) => {
+        if (isMounted) {
+          setWorkspaces(list);
+          if (list.length > 0 && !currentWorkspaceId) {
+            setSelectedId(list[0].id);
+          }
+          setIsLoading(false);
+        }
+      })
+      .catch(() => {
+        if (isMounted) setIsLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentWorkspaceId]);
+
+  const activeId = currentWorkspaceId || selectedId;
   const currentWorkspace =
-    workspaces.find((w) => w.id === selectedId) || workspaces[0];
+    workspaces.find((w) => w.id === activeId) || workspaces[0];
 
-  const handleSelectWorkspace = (ws: WorkspaceItem) => {
+  const handleSelectWorkspace = (ws: WorkspaceSummary) => {
     setSelectedId(ws.id);
     setIsDropdownOpen(false);
     onWorkspaceChange?.(ws.id);
     router.push(`/workspace/${ws.id}`);
     addToast({
       message: `Switched to ${ws.name}`,
-      description: `Role: ${ws.role} • ${ws.membersCount} collaborators`,
+      description: `Role: ${ws.role} • ${ws.membersCount} member${ws.membersCount === 1 ? "" : "s"}`,
       variant: "info",
     });
   };
 
-  const handleCreateWorkspace = (e: React.FormEvent) => {
+  const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newWorkspaceName.trim()) return;
+    if (!newWorkspaceName.trim() || isCreating) return;
 
-    const newWs: WorkspaceItem = {
-      id: `ws-${Date.now().toString().slice(-4)}`,
-      name: newWorkspaceName.trim(),
-      plan: "Free Plan",
-      membersCount: 1,
-      role: "Owner",
-      avatarLetter: newWorkspaceName.trim().charAt(0).toUpperCase(),
-      color: "bg-indigo-600",
-    };
+    setIsCreating(true);
+    try {
+      const newWs = await createWorkspace(newWorkspaceName.trim());
+      setWorkspaces((prev) => [newWs, ...prev]);
+      setSelectedId(newWs.id);
+      setIsCreateModalOpen(false);
+      setNewWorkspaceName("");
+      router.push(`/workspace/${newWs.id}`);
 
-    setWorkspaces((prev) => [...prev, newWs]);
-    setSelectedId(newWs.id);
-    setIsCreateModalOpen(false);
-    setNewWorkspaceName("");
-    router.push(`/workspace/${newWs.id}`);
-
-    addToast({
-      message: `Workspace "${newWs.name}" created`,
-      description: "You have Owner privileges in this new workspace.",
-      variant: "success",
-    });
+      addToast({
+        message: `Workspace "${newWs.name}" created`,
+        description: "You have Owner privileges in this new workspace.",
+        variant: "success",
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to create workspace";
+      addToast({
+        message: "Error creating workspace",
+        description: msg,
+        variant: "error",
+      });
+    } finally {
+      setIsCreating(false);
+    }
   };
+
+  const avatarLetter = currentWorkspace
+    ? currentWorkspace.name.trim().charAt(0).toUpperCase()
+    : "W";
+  const avatarColor = currentWorkspace
+    ? getColorForId(currentWorkspace.id)
+    : "bg-[#2383e2]";
 
   return (
     <div className="relative w-full">
@@ -121,16 +139,20 @@ export function WorkspaceSwitcher({
         aria-expanded={isDropdownOpen}
       >
         <div
-          className={`w-6 h-6 rounded-md ${currentWorkspace.color} text-white flex items-center justify-center text-xs font-semibold shrink-0`}
+          className={`w-6 h-6 rounded-md ${avatarColor} text-white flex items-center justify-center text-xs font-semibold shrink-0`}
         >
-          {currentWorkspace.avatarLetter}
+          {avatarLetter}
         </div>
         <div className="flex flex-col min-w-0 flex-1">
           <span className="text-xs font-semibold text-[#37352f] truncate leading-tight">
-            {currentWorkspace.name}
+            {isLoading
+              ? "Loading workspaces..."
+              : currentWorkspace?.name || "Select Workspace"}
           </span>
           <span className="text-[10px] text-neutral-400 truncate leading-none mt-0.5">
-            {currentWorkspace.plan} • {currentWorkspace.membersCount} Members
+            {currentWorkspace
+              ? `${currentWorkspace.role} • ${currentWorkspace.membersCount} Member${currentWorkspace.membersCount === 1 ? "" : "s"}`
+              : "No workspace"}
           </span>
         </div>
         <ChevronDown className="w-3.5 h-3.5 text-neutral-400 shrink-0 ml-1" />
@@ -148,9 +170,12 @@ export function WorkspaceSwitcher({
               Switch Workspace
             </div>
 
-            <div className="space-y-0.5">
+            <div className="space-y-0.5 max-h-60 overflow-y-auto">
               {workspaces.map((ws) => {
                 const isSelected = ws.id === selectedId;
+                const wsColor = getColorForId(ws.id);
+                const wsLetter = ws.name.trim().charAt(0).toUpperCase();
+
                 return (
                   <button
                     key={ws.id}
@@ -159,16 +184,16 @@ export function WorkspaceSwitcher({
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <div
-                        className={`w-5 h-5 rounded ${ws.color} text-white flex items-center justify-center text-[11px] font-semibold shrink-0`}
+                        className={`w-5 h-5 rounded ${wsColor} text-white flex items-center justify-center text-[11px] font-semibold shrink-0`}
                       >
-                        {ws.avatarLetter}
+                        {wsLetter}
                       </div>
                       <div className="flex flex-col min-w-0">
                         <span className="font-medium text-[#37352f] truncate">
                           {ws.name}
                         </span>
                         <span className="text-[10px] text-neutral-400">
-                          {ws.role} • {ws.membersCount} members
+                          {ws.role} • {ws.membersCount} member{ws.membersCount === 1 ? "" : "s"}
                         </span>
                       </div>
                     </div>
@@ -208,37 +233,38 @@ export function WorkspaceSwitcher({
               variant="secondary"
               size="sm"
               onClick={() => setIsCreateModalOpen(false)}
+              disabled={isCreating}
             >
               Cancel
             </Button>
             <Button
               variant="primary"
               size="sm"
-              disabled={!newWorkspaceName.trim()}
-              onClick={handleCreateWorkspace}
+              disabled={!newWorkspaceName.trim() || isCreating}
+              onClick={handleCreate}
             >
-              Create Workspace
+              {isCreating ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  <span>Creating...</span>
+                </>
+              ) : (
+                "Create Workspace"
+              )}
             </Button>
           </>
         }
       >
-        <form onSubmit={handleCreateWorkspace} className="space-y-4">
+        <form onSubmit={handleCreate} className="space-y-4">
           <Input
             id="ws-name-input"
             label="Workspace Name"
             placeholder="e.g. Mobile Engineering, Sprint Planning"
             value={newWorkspaceName}
             onChange={(e) => setNewWorkspaceName(e.target.value)}
+            disabled={isCreating}
             autoFocus
           />
-          <div className="p-3 bg-[#fafafa] border border-[#e5e7eb] rounded-md text-xs text-neutral-500 space-y-1">
-            <span className="font-semibold text-neutral-700 block">
-              Phase 2 Mock State:
-            </span>
-            <p>
-              New workspaces persist in client memory during your session. Database persistence will be connected in Phase 4 via PostgreSQL and Prisma.
-            </p>
-          </div>
         </form>
       </Dialog>
     </div>
