@@ -9,11 +9,13 @@ import {
   Copy,
   Check,
   Shield,
+  LogOut,
 } from "lucide-react";
 import { WorkspaceSidebar } from "@/components/workspace/WorkspaceSidebar";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { useToast } from "@/components/ui/Toast";
+import { useCurrentUser } from "@/lib/auth/useCurrentUser";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -32,6 +34,16 @@ export function AppShell({
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const { addToast } = useToast();
+  const { user, logout } = useCurrentUser();
+
+  const userInitials = user?.name
+    ? user.name
+        .split(" ")
+        .map((n) => n[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2)
+    : "ME";
 
   const handleCopyLink = () => {
     setCopiedLink(true);
@@ -96,9 +108,9 @@ export function AppShell({
             <div className="hidden sm:flex items-center -space-x-1.5">
               <div
                 className="w-6 h-6 rounded-full bg-blue-100 border border-white text-blue-700 flex items-center justify-center text-[10px] font-semibold"
-                title="Active User: You (Owner)"
+                title={`Active User: ${user?.name || "You"} (Owner)`}
               >
-                ME
+                {userInitials}
               </div>
               <div
                 className="w-6 h-6 rounded-full bg-neutral-100 border border-white text-neutral-500 flex items-center justify-center text-[10px]"
@@ -119,18 +131,38 @@ export function AppShell({
               <span>Share</span>
             </Button>
 
-            {/* Navigation links for test suite */}
+            {/* User Session / Auth Controls */}
             <div className="flex items-center gap-1 pl-2 border-l border-neutral-200">
-              <Link href="/login">
-                <Button variant="ghost" size="sm" className="text-xs">
-                  Login
-                </Button>
-              </Link>
-              <Link href="/signup">
-                <Button variant="primary" size="sm" className="text-xs">
-                  Signup
-                </Button>
-              </Link>
+              {user ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-neutral-600 font-medium hidden md:inline truncate max-w-[120px]">
+                    {user.name}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={logout}
+                    className="text-xs text-neutral-500 hover:text-red-600"
+                    title="Sign Out"
+                  >
+                    <LogOut className="w-3.5 h-3.5 sm:mr-1" />
+                    <span className="hidden sm:inline">Logout</span>
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <Link href="/login">
+                    <Button variant="ghost" size="sm" className="text-xs">
+                      Login
+                    </Button>
+                  </Link>
+                  <Link href="/signup">
+                    <Button variant="primary" size="sm" className="text-xs">
+                      Signup
+                    </Button>
+                  </Link>
+                </>
+              )}
             </div>
           </div>
         </header>
@@ -201,14 +233,14 @@ export function AppShell({
               <div className="p-2.5 bg-white flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
                   <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-semibold">
-                    ME
+                    {userInitials}
                   </div>
                   <div>
                     <span className="text-xs font-medium text-[#37352f] block">
-                      Intern Engineer (You)
+                      {user?.name || "Intern Engineer"} (You)
                     </span>
                     <span className="text-[11px] text-neutral-400">
-                      owner@workspace.dev
+                      {user?.email || "owner@workspace.dev"}
                     </span>
                   </div>
                 </div>

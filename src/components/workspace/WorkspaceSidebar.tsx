@@ -8,12 +8,14 @@ import {
   LayoutDashboard,
   Settings,
   PanelLeftClose,
+  LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import { PageTree } from "./PageTree";
 import { Dialog } from "@/components/ui/Dialog";
 import { Input } from "@/components/ui/Input";
+import { useCurrentUser } from "@/lib/auth/useCurrentUser";
 
 interface WorkspaceSidebarProps {
   workspaceId?: string;
@@ -29,8 +31,18 @@ export function WorkspaceSidebar({
   onWorkspaceChange,
 }: WorkspaceSidebarProps) {
   const pathname = usePathname();
+  const { user, logout } = useCurrentUser();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+
+  const userInitials = user?.name
+    ? user.name
+        .split(" ")
+        .map((n) => n[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2)
+    : "U";
 
   // Register global Ctrl+K / Cmd+K keyboard shortcut listener
   useEffect(() => {
@@ -107,27 +119,37 @@ export function WorkspaceSidebar({
 
         {/* Footer Profile & Settings */}
         <div className="p-2.5 sm:p-3 border-t border-[#e9e9e7]/70 bg-[#fbfbfa]">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-6 h-6 rounded-full bg-neutral-200 border border-neutral-300 flex items-center justify-center text-xs font-medium text-neutral-700 shrink-0">
-                U
+          <div className="flex items-center justify-between gap-1">
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              <div className="w-6 h-6 rounded-full bg-blue-100 border border-blue-200 flex items-center justify-center text-[10px] font-semibold text-blue-700 shrink-0">
+                {userInitials}
               </div>
-              <div className="flex flex-col min-w-0">
+              <div className="flex flex-col min-w-0 flex-1">
                 <span className="text-xs font-medium text-[#37352f] truncate leading-tight">
-                  Intern Engineer
+                  {user?.name || "Collaborator"}
                 </span>
-                <span className="text-[10px] text-neutral-400 font-mono leading-none mt-0.5">
-                  Role: Owner
+                <span className="text-[10px] text-neutral-400 truncate leading-none mt-0.5">
+                  {user?.email || "owner@workspace.dev"}
                 </span>
               </div>
             </div>
-            <Link
-              href="/dashboard"
-              className="p-1.5 rounded-md text-neutral-400 hover:text-neutral-700 hover:bg-[#efefed] transition-colors"
-              title="Settings"
-            >
-              <Settings className="w-3.5 h-3.5" />
-            </Link>
+            <div className="flex items-center gap-0.5 shrink-0">
+              <Link
+                href="/dashboard"
+                className="p-1.5 rounded-md text-neutral-400 hover:text-neutral-700 hover:bg-[#efefed] transition-colors"
+                title="Settings"
+              >
+                <Settings className="w-3.5 h-3.5" />
+              </Link>
+              <button
+                onClick={logout}
+                className="p-1.5 rounded-md text-neutral-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                title="Sign Out"
+                aria-label="Sign out"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         </div>
       </aside>
