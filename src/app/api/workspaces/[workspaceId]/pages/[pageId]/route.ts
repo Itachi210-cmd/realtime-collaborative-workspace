@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { checkWorkspaceAccess } from "@/lib/auth/workspace-auth";
 import { updatePageSchema } from "@/lib/validations/page";
 import { prisma } from "@/lib/prisma";
+import { Prisma, Role } from "@prisma/client";
 
 interface RouteParams {
   params: Promise<{
@@ -57,7 +58,7 @@ export async function GET(request: Request, { params }: RouteParams) {
 
 /**
  * PATCH /api/workspaces/[workspaceId]/pages/[pageId]
- * Renames a page in the workspace.
+ * Updates a page's title and/or rich-text content in the workspace.
  */
 export async function PATCH(request: Request, { params }: RouteParams) {
   try {
@@ -67,6 +68,16 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       return NextResponse.json(
         { error: authCheck.error },
         { status: authCheck.status }
+      );
+    }
+
+    // Role check: Only OWNER or EDITOR can edit documents
+    const { isOwner, membership } = authCheck.data;
+    const canEdit = isOwner || membership?.role === Role.EDITOR;
+    if (!canEdit) {
+      return NextResponse.json(
+        { error: "Forbidden: You do not have permission to edit documents in this workspace" },
+        { status: 403 }
       );
     }
 
@@ -92,11 +103,17 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       );
     }
 
+    const updateData: { title?: string; content?: Prisma.InputJsonValue } = {};
+    if (parseResult.data.title !== undefined) {
+      updateData.title = parseResult.data.title;
+    }
+    if (parseResult.data.content !== undefined) {
+      updateData.content = parseResult.data.content as Prisma.InputJsonValue;
+    }
+
     const updatedPage = await prisma.page.update({
       where: { id: pageId },
-      data: {
-        title: parseResult.data.title,
-      },
+      data: updateData,
       include: {
         createdBy: {
           select: { id: true, name: true, email: true },

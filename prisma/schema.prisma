@@ -64,6 +64,7 @@ model Page {
   parentPage   Page?     @relation("PageHierarchy", fields: [parentPageId], references: [id], onDelete: Cascade)
   childPages   Page[]    @relation("PageHierarchy")
   title        String
+  content      Json?
   createdById  String
   createdBy    User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
   createdAt    DateTime  @default(now())

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { checkWorkspaceAccess } from "@/lib/auth/workspace-auth";
-import { createPageSchema } from "@/lib/validations/page";
+import { createPageSchema, DEFAULT_PAGE_CONTENT } from "@/lib/validations/page";
 import { prisma } from "@/lib/prisma";
 
 interface RouteParams {
@@ -102,6 +102,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         workspaceId,
         parentPageId: parentPageId || null,
         createdById: session.userId,
+        content: parseResult.data.content || DEFAULT_PAGE_CONTENT,
       },
       include: {
         createdBy: {
