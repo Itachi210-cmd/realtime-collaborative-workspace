@@ -82,6 +82,51 @@ export function EditorToolbar({ editor, disabled = false }: EditorToolbarProps) 
     return `${base} text-neutral-600 hover:bg-[#efefed] hover:text-[#37352f] cursor-pointer`;
   };
 
+  // Safe checks for undo/redo availability (supports TipTap standard and Yjs collaboration commands)
+  const canUndo = Boolean(
+    !disabled &&
+      typeof editor.can === "function" &&
+      typeof (editor.can() as Record<string, unknown>)?.undo === "function" &&
+      (() => {
+        try {
+          return (editor.can() as { undo: () => boolean }).undo();
+        } catch {
+          return false;
+        }
+      })()
+  );
+
+  const canRedo = Boolean(
+    !disabled &&
+      typeof editor.can === "function" &&
+      typeof (editor.can() as Record<string, unknown>)?.redo === "function" &&
+      (() => {
+        try {
+          return (editor.can() as { redo: () => boolean }).redo();
+        } catch {
+          return false;
+        }
+      })()
+  );
+
+  const handleUndo = () => {
+    if (!canUndo) return;
+    try {
+      editor.chain().focus().undo().run();
+    } catch (err) {
+      console.warn("[EditorToolbar] Undo failed:", err);
+    }
+  };
+
+  const handleRedo = () => {
+    if (!canRedo) return;
+    try {
+      editor.chain().focus().redo().run();
+    } catch (err) {
+      console.warn("[EditorToolbar] Redo failed:", err);
+    }
+  };
+
   return (
     <div className="sticky top-0 z-10 -mx-4 -mt-4 px-4 py-2 bg-white/95 backdrop-blur-xs border-b border-[#e9e9e7] flex flex-wrap items-center justify-between gap-2 select-none">
       <div className="flex items-center gap-0.5 overflow-x-auto py-0.5">
@@ -226,18 +271,18 @@ export function EditorToolbar({ editor, disabled = false }: EditorToolbarProps) 
         <button
           type="button"
           title="Undo (Ctrl+Z)"
-          disabled={disabled || !editor.can().undo()}
-          onClick={() => editor.chain().focus().undo().run()}
-          className={getButtonClass(false, editor.can().undo())}
+          disabled={!canUndo}
+          onClick={handleUndo}
+          className={getButtonClass(false, canUndo)}
         >
           <Undo2 className="w-3.5 h-3.5" />
         </button>
         <button
           type="button"
           title="Redo (Ctrl+Y)"
-          disabled={disabled || !editor.can().redo()}
-          onClick={() => editor.chain().focus().redo().run()}
-          className={getButtonClass(false, editor.can().redo())}
+          disabled={!canRedo}
+          onClick={handleRedo}
+          className={getButtonClass(false, canRedo)}
         >
           <Redo2 className="w-3.5 h-3.5" />
         </button>

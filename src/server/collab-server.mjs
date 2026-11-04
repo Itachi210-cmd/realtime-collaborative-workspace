@@ -136,7 +136,7 @@ function sendPermissionDenied(ws, reason) {
  */
 export function createCollabServer(options = {}) {
   const port = options.port ?? (process.env.COLLAB_PORT ? parseInt(process.env.COLLAB_PORT, 10) : 1234);
-  const host = options.host ?? (process.env.COLLAB_HOST || '0.0.0.0');
+  const host = options.host ?? (process.env.COLLAB_HOST || undefined);
   const authTimeoutMs = options.authTimeoutMs ?? (
     process.env.COLLAB_AUTH_TIMEOUT_MS ? parseInt(process.env.COLLAB_AUTH_TIMEOUT_MS, 10) : 5000
   );
@@ -144,11 +144,20 @@ export function createCollabServer(options = {}) {
     process.env.COLLAB_CLEANUP_GRACE_MS ? parseInt(process.env.COLLAB_CLEANUP_GRACE_MS, 10) : 30000
   );
 
+  const defaultAllowedOrigins = [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost:3001',
+    'http://127.0.0.1:3001',
+  ];
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    defaultAllowedOrigins.push(process.env.NEXT_PUBLIC_APP_URL);
+  }
+
   const rawOrigins = options.allowedOrigins
     ? options.allowedOrigins.join(',')
-    : (process.env.COLLAB_ALLOWED_ORIGINS ||
-       'http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001');
-  const allowedOrigins = rawOrigins.split(',').map((o) => o.trim()).filter(Boolean);
+    : (process.env.COLLAB_ALLOWED_ORIGINS || defaultAllowedOrigins.join(','));
+  const allowedOrigins = [...new Set(rawOrigins.split(',').map((o) => o.trim()).filter(Boolean))];
 
   // In-memory room storage: Map<pageId, CollabRoom>
   const rooms = new Map();
@@ -184,9 +193,13 @@ export function createCollabServer(options = {}) {
         for (const client of room.clients) {
           if (client !== origin && client.readyState === WebSocket.OPEN && client.isCollabAuthenticated) {
             try {
-              client.send(msg);
+              client.send(msg, { binary: true }, (err) => {
+                if (err) {
+                  console.error(`[CollabServer] Error sending doc update in room "${pageId}":`, err.message);
+                }
+              });
             } catch (err) {
-              console.error(`[CollabServer] Failed broadcasting doc update in room ${pageId}:`, err);
+              console.error(`[CollabServer] Failed broadcasting doc update in room "${pageId}":`, err);
             }
           }
         }
@@ -206,9 +219,13 @@ export function createCollabServer(options = {}) {
         for (const client of room.clients) {
           if (client !== origin && client.readyState === WebSocket.OPEN && client.isCollabAuthenticated) {
             try {
-              client.send(msg);
+              client.send(msg, { binary: true }, (err) => {
+                if (err) {
+                  console.error(`[CollabServer] Error sending awareness update in room "${pageId}":`, err.message);
+                }
+              });
             } catch (err) {
-              console.error(`[CollabServer] Failed broadcasting awareness update in room ${pageId}:`, err);
+              console.error(`[CollabServer] Failed broadcasting awareness update in room "${pageId}":`, err);
             }
           }
         }
@@ -321,10 +338,31 @@ export function createCollabServer(options = {}) {
       }
     }, authTimeoutMs);
 
+    let isAuthenticating = false;
+    const pendingPreAuthQueue = [];
+
     // Initial message handler for authentication
     ws.on('message', async (data, isBinary) => {
       if (!ws.isCollabAuthenticated) {
+        if (isAuthenticating) {
+          // If auth is already in flight, queue incoming traffic until verification resolves
+          pendingPreAuthQueue.push({ data, isBinary });
+          return;
+        }
+
+        isAuthenticating = true;
         await handleFirstMessageAuth(ws, data, isBinary, pageId, authTimer);
+        isAuthenticating = false;
+
+        // If authenticated successfully, flush any traffic that arrived during the verification window
+        if (ws.isCollabAuthenticated) {
+          while (pendingPreAuthQueue.length > 0) {
+            const next = pendingPreAuthQueue.shift();
+            if (next) {
+              handleRoomMessage(ws, next.data, next.isBinary, pageId);
+            }
+          }
+        }
       } else {
         handleRoomMessage(ws, data, isBinary, pageId);
       }
@@ -478,7 +516,7 @@ export function createCollabServer(options = {}) {
       const encoder = encoding.createEncoder();
       encoding.writeVarUint(encoder, MESSAGE_SYNC);
       syncProtocol.writeSyncStep1(encoder, room.doc);
-      ws.send(encoding.toUint8Array(encoder));
+      ws.send(encoding.toUint8Array(encoder), { binary: true });
     } catch (err) {
       console.error(`[CollabServer] Error sending sync step 1 in room "${pageId}":`, err);
     }
@@ -496,7 +534,7 @@ export function createCollabServer(options = {}) {
             Array.from(awarenessStates.keys())
           )
         );
-        ws.send(encoding.toUint8Array(awarenessEncoder));
+        ws.send(encoding.toUint8Array(awarenessEncoder), { binary: true });
       }
     } catch (err) {
       console.error(`[CollabServer] Error sending awareness states in room "${pageId}":`, err);
@@ -538,7 +576,7 @@ export function createCollabServer(options = {}) {
           encoding.writeVarUint(replyEncoder, MESSAGE_SYNC);
           syncProtocol.readSyncMessage(decoder, replyEncoder, room.doc, ws);
           if (encoding.length(replyEncoder) > 1) {
-            ws.send(encoding.toUint8Array(replyEncoder));
+            ws.send(encoding.toUint8Array(replyEncoder), { binary: true });
           }
           break;
         }
@@ -560,7 +598,7 @@ export function createCollabServer(options = {}) {
               Array.from(room.awareness.getStates().keys())
             )
           );
-          ws.send(encoding.toUint8Array(replyEncoder));
+          ws.send(encoding.toUint8Array(replyEncoder), { binary: true });
           break;
         }
         default:
@@ -609,12 +647,19 @@ export function createCollabServer(options = {}) {
    */
   function start() {
     return new Promise((resolve, reject) => {
-      server.listen(port, host, () => {
-        console.log(`[CollabServer] Yjs WebSocket server listening on ws://${host}:${port}`);
+      const onListening = () => {
+        const boundHost = host || 'dual-stack (0.0.0.0 / ::)';
+        console.log(`[CollabServer] Yjs WebSocket server listening on port ${port} (${boundHost})`);
         console.log(`[CollabServer] Allowed Origins: ${allowedOrigins.join(', ')}`);
         console.log(`[CollabServer] Auth Timeout: ${authTimeoutMs}ms | Cleanup Grace: ${cleanupGraceMs}ms`);
         resolve({ server, port, host });
-      });
+      };
+
+      if (host) {
+        server.listen(port, host, onListening);
+      } else {
+        server.listen(port, onListening);
+      }
       server.on('error', reject);
     });
   }

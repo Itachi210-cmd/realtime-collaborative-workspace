@@ -1,12 +1,18 @@
 "use client";
 
-import React, { useState, useRef, useCallback, useEffect, useSyncExternalStore } from "react";
+import React, { useState, useRef, useMemo, useEffect, useSyncExternalStore } from "react";
 import { useEditor, EditorContent, type JSONContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
+import Collaboration from "@tiptap/extension-collaboration";
+import * as Y from "yjs";
 import { EditorToolbar } from "./EditorToolbar";
 import { DocumentTitle } from "./DocumentTitle";
-import { SaveStatusBadge, SaveStatus } from "./SaveStatusBadge";
+import { CollabStatusBadge } from "./CollabStatusBadge";
+import {
+  createCollabWebsocketProvider,
+  type CollabConnectionStatus,
+} from "@/lib/collab/collab-provider";
 import { DEFAULT_PAGE_CONTENT } from "@/lib/validations/page";
 import { useRouter } from "next/navigation";
 
@@ -29,15 +35,16 @@ export function RichTextEditor({
 
   // React 19 idiomatic SSR / hydration safe client mounting
   const isMounted = useSyncExternalStore(
-    () => () => {},
+    () => () => { },
     () => true,
     () => false
   );
 
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved");
+  const [collabStatus, setCollabStatus] = useState<CollabConnectionStatus>("connecting");
+  const [collabError, setCollabError] = useState<string | null>(null);
 
-  // Parse initial content safely
-  const resolvedInitialContent = React.useMemo(() => {
+  // Parse initial content safely (used only when collaboration is inactive)
+  const resolvedInitialContent = useMemo(() => {
     if (
       initialContent &&
       typeof initialContent === "object" &&
@@ -48,142 +55,84 @@ export function RichTextEditor({
     return DEFAULT_PAGE_CONTENT;
   }, [initialContent]);
 
-  const lastSavedJsonRef = useRef<string>(JSON.stringify(resolvedInitialContent));
-  const pendingContentRef = useRef<JSONContent | null>(null);
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const lastRequestIdRef = useRef<number>(0);
+  // Maintain stable Y.Doc per pageId (in-memory CRDT, garbage collected on page switch)
+  const ydoc = useMemo(() => {
+    void pageId;
+    return new Y.Doc();
+  }, [pageId]);
 
-  // Save content to backend
-  const saveContent = useCallback(
-    async (contentJson: JSONContent) => {
-      const jsonStr = JSON.stringify(contentJson);
-      if (jsonStr === lastSavedJsonRef.current) {
-        setSaveStatus("saved");
-        return;
-      }
+  const providerRef = useRef<ReturnType<typeof createCollabWebsocketProvider> | null>(null);
 
-      const requestId = ++lastRequestIdRef.current;
-      setSaveStatus("saving");
+  // Manage WebSocket provider lifecycle in useEffect (resilient to React StrictMode and component remounts)
+  useEffect(() => {
+    if (!isMounted || !isEditable) return;
 
-      try {
-        const res = await fetch(
-          `/api/workspaces/${workspaceId}/pages/${pageId}`,
-          {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ content: contentJson }),
-          }
-        );
-
-        if (!res.ok) {
-          throw new Error(`Save failed with HTTP ${res.status}`);
-        }
-
-        // Avoid race conditions: only update saved ref if this was the latest request
-        if (requestId === lastRequestIdRef.current) {
-          lastSavedJsonRef.current = jsonStr;
-          pendingContentRef.current = null;
-          setSaveStatus("saved");
-        }
-      } catch (error) {
-        console.error("[RICH_TEXT_SAVE_ERROR]", error);
-        if (requestId === lastRequestIdRef.current) {
-          setSaveStatus("error");
-        }
-      }
-    },
-    [workspaceId, pageId]
-  );
-
-  // Initialize TipTap
-  const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        heading: {
-          levels: [1, 2, 3],
-        },
-        link: {
-          openOnClick: false,
-          autolink: true,
-          HTMLAttributes: {
-            class:
-              "text-[#2383e2] underline underline-offset-2 hover:text-blue-700 cursor-pointer",
-          },
-        },
-        underline: {},
-      }),
-      Placeholder.configure({
-        placeholder: "Press '/' for commands, or start typing...",
-        emptyEditorClass: "is-editor-empty",
-      }),
-    ],
-    content: resolvedInitialContent,
-    editable: isEditable,
-    immediatelyRender: false,
-    editorProps: {
-      attributes: {
-        class:
-          "prose prose-neutral max-w-none focus:outline-none min-h-[360px] text-sm sm:text-base leading-relaxed text-[#37352f]",
+    const collabProvider = createCollabWebsocketProvider({
+      workspaceId,
+      pageId,
+      ydoc,
+      onStatusChange: (status, err) => {
+        setCollabStatus(status as CollabConnectionStatus);
+        setCollabError(err || null);
       },
-    },
-    onUpdate: ({ editor: ed }) => {
-      const json = ed.getJSON();
-      pendingContentRef.current = json;
-      setSaveStatus("unsaved");
+    });
 
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-      }
+    providerRef.current = collabProvider;
 
-      debounceTimerRef.current = setTimeout(() => {
-        saveContent(json);
-      }, 1200);
-    },
-    onBlur: () => {
-      if (pendingContentRef.current) {
-        if (debounceTimerRef.current) {
-          clearTimeout(debounceTimerRef.current);
-        }
-        saveContent(pendingContentRef.current);
-      }
-    },
-  });
-
-  // Flush any pending save on unmount / page switch
-  useEffect(() => {
     return () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-      }
-      if (pendingContentRef.current) {
-        const jsonStr = JSON.stringify(pendingContentRef.current);
-        if (jsonStr !== lastSavedJsonRef.current) {
-          // Use keepalive fetch to ensure request completes during unload/navigation
-          fetch(`/api/workspaces/${workspaceId}/pages/${pageId}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ content: pendingContentRef.current }),
-            keepalive: true,
-          }).catch(() => {
-            // Ignore unload errors
-          });
-        }
-      }
+      collabProvider.destroy();
+      providerRef.current = null;
     };
-  }, [workspaceId, pageId]);
+  }, [isMounted, isEditable, workspaceId, pageId, ydoc]);
 
-  // Window beforeunload warning if unsaved
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (pendingContentRef.current && saveStatus === "unsaved") {
-        e.preventDefault();
-        e.returnValue = "";
-      }
-    };
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [saveStatus]);
+  // Initialize TipTap with Collaboration extension and disabled StarterKit history
+  const editor = useEditor(
+    {
+      extensions: [
+        StarterKit.configure({
+          // TipTap 3 StarterKit uses undoRedo to control built-in history; Yjs handles collaborative history
+          undoRedo: false,
+          heading: {
+            levels: [1, 2, 3],
+          },
+          link: {
+            openOnClick: false,
+            autolink: true,
+            HTMLAttributes: {
+              class:
+                "text-[#2383e2] underline underline-offset-2 hover:text-blue-700 cursor-pointer",
+            },
+          },
+          underline: {},
+        }),
+        Placeholder.configure({
+          placeholder: "Press '/' for commands, or start typing...",
+          emptyEditorClass: "is-editor-empty",
+        }),
+        ...(isEditable
+          ? [
+            Collaboration.configure({
+              document: ydoc,
+              field: "default",
+            }),
+          ]
+          : []),
+      ],
+      // When collaboration is active, Y.Doc is the source of truth
+      content: isEditable ? undefined : resolvedInitialContent,
+      editable: isEditable,
+      immediatelyRender: false,
+      editorProps: {
+        attributes: {
+          class:
+            "prose prose-neutral max-w-none focus:outline-none min-h-[360px] text-sm sm:text-base leading-relaxed text-[#37352f]",
+        },
+      },
+      // HTTP content autosave is disabled while collaboration is active to prevent
+      // overwriting concurrent collaborative edits with stale HTTP PATCH requests.
+    },
+    [ydoc, isEditable, resolvedInitialContent]
+  );
 
   if (!isMounted) {
     return (
@@ -224,12 +173,13 @@ export function RichTextEditor({
           <div className="flex items-center justify-between text-xs text-neutral-400">
             <span>Notion-inspired rich document editor</span>
             <div className="flex items-center gap-2">
-              <span className="text-[11px] text-neutral-400">Content state:</span>
-              <SaveStatusBadge
-                status={saveStatus}
+              <span className="text-[11px] text-neutral-400">Collaboration:</span>
+              <CollabStatusBadge
+                status={isEditable ? collabStatus : "disconnected"}
+                errorMessage={collabError}
                 onRetry={() => {
-                  if (editor) {
-                    saveContent(editor.getJSON());
+                  if (providerRef.current) {
+                    providerRef.current.connect();
                   }
                 }}
               />

@@ -4,7 +4,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient, Role } from "@prisma/client";
 import { jwtVerify } from "jose";
 
-const BASE_URL = "http://localhost:3001";
+let BASE_URL = process.env.TEST_APP_URL || "http://localhost:3000";
 const connectionString =
   process.env.DATABASE_URL ||
   "postgresql://postgres:postgres@localhost:5432/collab_workspace?schema=public";
@@ -14,7 +14,7 @@ const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
 // Helper to poll until the server is ready
-async function waitForServer(url, timeoutMs = 20000) {
+async function waitForServer(url, timeoutMs = 35000) {
   const startTime = Date.now();
   while (Date.now() - startTime < timeoutMs) {
     try {
@@ -48,13 +48,23 @@ async function runTests() {
     }
   }
 
-  // Start Next.js dev server directly in the same process tree
-  console.log("Starting Next.js test server on port 3001...");
-  const serverProcess = spawn(
-    "node",
-    ["node_modules/next/dist/bin/next", "dev", "-p", "3001"],
-    { stdio: "pipe" }
-  );
+  let serverProcess = null;
+  const is3000Ready = await fetch("http://localhost:3000/api/auth/me")
+    .then((r) => r.status === 401 || r.status === 200)
+    .catch(() => false);
+
+  if (is3000Ready) {
+    BASE_URL = "http://localhost:3000";
+    console.log("Using existing Next.js server running on port 3000...");
+  } else {
+    BASE_URL = "http://localhost:3001";
+    console.log("Starting Next.js test server on port 3001...");
+    serverProcess = spawn(
+      "node",
+      ["node_modules/next/dist/bin/next", "dev", "-p", "3001"],
+      { stdio: "inherit" }
+    );
+  }
 
   const secret = process.env.AUTH_SECRET || "collab-workspace-super-secret-jwt-signing-key-32-chars-min!";
   const secretKey = new TextEncoder().encode(secret);
