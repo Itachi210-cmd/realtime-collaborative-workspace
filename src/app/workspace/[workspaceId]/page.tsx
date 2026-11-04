@@ -199,6 +199,12 @@ async function WorkspaceDocument({
           initialTitle={activePage.title}
           initialContent={activePage.content as JSONContent | null}
           isEditable={canEdit}
+          currentUser={{
+            id: authCheck.data.session.userId,
+            name: authCheck.data.session.name,
+            email: authCheck.data.session.email,
+            role: isOwner ? "OWNER" : membership?.role || "EDITOR",
+          }}
         />
 
         {/* Child Pages Quick Links if any */}

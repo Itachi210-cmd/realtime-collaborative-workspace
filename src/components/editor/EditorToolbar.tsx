@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { type Editor } from "@tiptap/react";
 import {
   Heading1,
@@ -29,6 +29,21 @@ interface EditorToolbarProps {
 export function EditorToolbar({ editor, disabled = false }: EditorToolbarProps) {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
+  const [, setHistoryRevision] = useState(0);
+
+  // Subscribe to editor transactions to reactively update toolbar states (canUndo, canRedo, active marks)
+  useEffect(() => {
+    if (!editor) return;
+
+    const handleTransaction = () => {
+      setHistoryRevision((r) => r + 1);
+    };
+
+    editor.on("transaction", handleTransaction);
+    return () => {
+      editor.off("transaction", handleTransaction);
+    };
+  }, [editor]);
 
   if (!editor) {
     return (
@@ -82,14 +97,13 @@ export function EditorToolbar({ editor, disabled = false }: EditorToolbarProps) 
     return `${base} text-neutral-600 hover:bg-[#efefed] hover:text-[#37352f] cursor-pointer`;
   };
 
-  // Safe checks for undo/redo availability (supports TipTap standard and Yjs collaboration commands)
+  // Safe checks for undo/redo availability (evaluates Yjs Collaboration UndoManager via TipTap commands)
   const canUndo = Boolean(
     !disabled &&
       typeof editor.can === "function" &&
-      typeof (editor.can() as Record<string, unknown>)?.undo === "function" &&
       (() => {
         try {
-          return (editor.can() as { undo: () => boolean }).undo();
+          return Boolean(editor.can().undo());
         } catch {
           return false;
         }
@@ -99,10 +113,9 @@ export function EditorToolbar({ editor, disabled = false }: EditorToolbarProps) 
   const canRedo = Boolean(
     !disabled &&
       typeof editor.can === "function" &&
-      typeof (editor.can() as Record<string, unknown>)?.redo === "function" &&
       (() => {
         try {
-          return (editor.can() as { redo: () => boolean }).redo();
+          return Boolean(editor.can().redo());
         } catch {
           return false;
         }
@@ -112,18 +125,20 @@ export function EditorToolbar({ editor, disabled = false }: EditorToolbarProps) 
   const handleUndo = () => {
     if (!canUndo) return;
     try {
-      editor.chain().focus().undo().run();
+      // Direct collaborative command (does not disrupt ProseMirror transaction with chain focus)
+      editor.commands.undo();
     } catch (err) {
-      console.warn("[EditorToolbar] Undo failed:", err);
+      console.warn("[EditorToolbar] Collaborative Undo failed:", err);
     }
   };
 
   const handleRedo = () => {
     if (!canRedo) return;
     try {
-      editor.chain().focus().redo().run();
+      // Direct collaborative command (does not disrupt ProseMirror transaction with chain focus)
+      editor.commands.redo();
     } catch (err) {
-      console.warn("[EditorToolbar] Redo failed:", err);
+      console.warn("[EditorToolbar] Collaborative Redo failed:", err);
     }
   };
 

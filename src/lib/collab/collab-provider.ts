@@ -12,6 +12,7 @@ export interface CollabProviderOptions {
   workspaceId: string;
   pageId: string;
   ydoc: Y.Doc;
+  awareness?: unknown;
   serverUrl?: string;
   getToken?: AuthTokenGetter;
   onStatusChange?: (status: CollabConnectionStatus, error?: string | null) => void;

@@ -67,6 +67,7 @@ export function getDefaultCollabWsUrl() {
  * @param {string} options.workspaceId
  * @param {string} options.pageId
  * @param {any} options.ydoc
+ * @param {any} [options.awareness]
  * @param {string} [options.serverUrl]
  * @param {() => Promise<string>} [options.getToken]
  * @param {(status: string, error?: string | null) => void} [options.onStatusChange]
@@ -78,6 +79,7 @@ export function createCollabWebsocketProvider({
   workspaceId,
   pageId,
   ydoc,
+  awareness,
   serverUrl = getDefaultCollabWsUrl(),
   getToken,
   onStatusChange,
@@ -116,6 +118,7 @@ export function createCollabWebsocketProvider({
     shouldReconnect,
     disableBc,
     maxBackoffTime: 5000,
+    ...(awareness ? { awareness } : {}),
   });
 
   // Track provider status events

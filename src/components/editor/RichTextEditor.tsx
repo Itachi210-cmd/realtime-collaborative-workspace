@@ -5,10 +5,14 @@ import { useEditor, EditorContent, type JSONContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Collaboration from "@tiptap/extension-collaboration";
+import { CollaborationCursor } from "@/lib/collab/collaboration-cursor";
 import * as Y from "yjs";
+import * as awarenessProtocol from "y-protocols/awareness";
 import { EditorToolbar } from "./EditorToolbar";
 import { DocumentTitle } from "./DocumentTitle";
 import { CollabStatusBadge } from "./CollabStatusBadge";
+import { CollaboratorAvatars } from "./CollaboratorAvatars";
+import { getCollaboratorColor } from "@/lib/collab/collab-colors";
 import {
   createCollabWebsocketProvider,
   type CollabConnectionStatus,
@@ -16,12 +20,20 @@ import {
 import { DEFAULT_PAGE_CONTENT } from "@/lib/validations/page";
 import { useRouter } from "next/navigation";
 
+export interface CurrentEditorUser {
+  id: string;
+  name: string;
+  email?: string;
+  role?: string;
+}
+
 interface RichTextEditorProps {
   workspaceId: string;
   pageId: string;
   initialTitle: string;
   initialContent?: JSONContent | null;
   isEditable?: boolean;
+  currentUser?: CurrentEditorUser | null;
 }
 
 export function RichTextEditor({
@@ -30,6 +42,7 @@ export function RichTextEditor({
   initialTitle,
   initialContent,
   isEditable = true,
+  currentUser,
 }: RichTextEditorProps) {
   const router = useRouter();
 
@@ -42,6 +55,11 @@ export function RichTextEditor({
 
   const [collabStatus, setCollabStatus] = useState<CollabConnectionStatus>("connecting");
   const [collabError, setCollabError] = useState<string | null>(null);
+
+  // Deterministically assign accessible color based on authenticated userId
+  const userColor = useMemo(() => {
+    return getCollaboratorColor(currentUser?.id);
+  }, [currentUser?.id]);
 
   // Parse initial content safely (used only when collaboration is inactive)
   const resolvedInitialContent = useMemo(() => {
@@ -61,6 +79,23 @@ export function RichTextEditor({
     return new Y.Doc();
   }, [pageId]);
 
+  // Maintain stable Yjs Awareness instance bound to ydoc
+  const awareness = useMemo(() => {
+    return new awarenessProtocol.Awareness(ydoc);
+  }, [ydoc]);
+
+  // Set local user details in awareness
+  useEffect(() => {
+    if (!awareness || !currentUser) return;
+    awareness.setLocalStateField("user", {
+      id: currentUser.id,
+      name: currentUser.name,
+      email: currentUser.email,
+      color: userColor.hex,
+      role: currentUser.role,
+    });
+  }, [awareness, currentUser, userColor]);
+
   const providerRef = useRef<ReturnType<typeof createCollabWebsocketProvider> | null>(null);
 
   // Manage WebSocket provider lifecycle in useEffect (resilient to React StrictMode and component remounts)
@@ -71,6 +106,7 @@ export function RichTextEditor({
       workspaceId,
       pageId,
       ydoc,
+      awareness,
       onStatusChange: (status, err) => {
         setCollabStatus(status as CollabConnectionStatus);
         setCollabError(err || null);
@@ -83,9 +119,9 @@ export function RichTextEditor({
       collabProvider.destroy();
       providerRef.current = null;
     };
-  }, [isMounted, isEditable, workspaceId, pageId, ydoc]);
+  }, [isMounted, isEditable, workspaceId, pageId, ydoc, awareness]);
 
-  // Initialize TipTap with Collaboration extension and disabled StarterKit history
+  // Initialize TipTap with Collaboration and CollaborationCursor extensions
   const editor = useEditor(
     {
       extensions: [
@@ -115,6 +151,13 @@ export function RichTextEditor({
               document: ydoc,
               field: "default",
             }),
+            CollaborationCursor.configure({
+              provider: { awareness },
+              user: {
+                name: currentUser?.name || "Anonymous",
+                color: userColor.hex,
+              },
+            }),
           ]
           : []),
       ],
@@ -131,7 +174,7 @@ export function RichTextEditor({
       // HTTP content autosave is disabled while collaboration is active to prevent
       // overwriting concurrent collaborative edits with stale HTTP PATCH requests.
     },
-    [ydoc, isEditable, resolvedInitialContent]
+    [ydoc, awareness, isEditable, resolvedInitialContent, currentUser?.name, userColor.hex]
   );
 
   if (!isMounted) {
@@ -172,17 +215,26 @@ export function RichTextEditor({
 
           <div className="flex items-center justify-between text-xs text-neutral-400">
             <span>Notion-inspired rich document editor</span>
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-neutral-400">Collaboration:</span>
-              <CollabStatusBadge
-                status={isEditable ? collabStatus : "disconnected"}
-                errorMessage={collabError}
-                onRetry={() => {
-                  if (providerRef.current) {
-                    providerRef.current.connect();
-                  }
-                }}
+            <div className="flex items-center gap-3">
+              {/* Collaborator Presence Avatar Bar */}
+              <CollaboratorAvatars
+                awareness={isEditable ? awareness : null}
+                currentUserId={currentUser?.id}
+                currentUserRole={currentUser?.role}
               />
+
+              <div className="flex items-center gap-2 border-l border-neutral-200 pl-3">
+                <span className="text-[11px] text-neutral-400">Collaboration:</span>
+                <CollabStatusBadge
+                  status={isEditable ? collabStatus : "disconnected"}
+                  errorMessage={collabError}
+                  onRetry={() => {
+                    if (providerRef.current) {
+                      providerRef.current.connect();
+                    }
+                  }}
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -198,6 +250,41 @@ export function RichTextEditor({
         .editor-surface .ProseMirror {
           outline: none !important;
           min-height: 380px;
+        }
+
+        /* Remote Collaboration Carets & Labels */
+        .collaboration-cursor__caret {
+          position: relative;
+          margin-left: -1px;
+          margin-right: -1px;
+          border-left: 2px solid;
+          border-right: 0px solid;
+          word-break: normal;
+          pointer-events: none;
+        }
+
+        .collaboration-cursor__label {
+          position: absolute;
+          top: -1.4em;
+          left: -2px;
+          font-size: 11px;
+          font-weight: 600;
+          line-height: 1;
+          color: #ffffff;
+          padding: 2px 6px;
+          border-radius: 4px 4px 4px 0;
+          white-space: nowrap;
+          user-select: none;
+          pointer-events: none;
+          z-index: 20;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+          font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+          letter-spacing: 0.01em;
+        }
+
+        .ProseMirror-yjs-selection {
+          opacity: 0.8;
+          border-radius: 2px;
         }
 
         .editor-surface .ProseMirror h1 {

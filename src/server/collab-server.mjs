@@ -581,9 +581,29 @@ export function createCollabServer(options = {}) {
           break;
         }
         case MESSAGE_AWARENESS: {
+          const awarenessUpdate = decoding.readVarUint8Array(decoder);
+          // Track controlled client IDs for this connection to enable immediate disconnect cleanup
+          try {
+            const updateDecoder = decoding.createDecoder(awarenessUpdate);
+            const updateLen = decoding.readVarUint(updateDecoder);
+            for (let i = 0; i < updateLen; i++) {
+              const clientID = decoding.readVarUint(updateDecoder);
+              decoding.readVarUint(updateDecoder); // skip clock
+              const stateStr = decoding.readVarString(updateDecoder);
+              if (!ws.collabAwarenessClientIds) {
+                ws.collabAwarenessClientIds = new Set();
+              }
+              if (stateStr === 'null') {
+                ws.collabAwarenessClientIds.delete(clientID);
+              } else {
+                ws.collabAwarenessClientIds.add(clientID);
+              }
+            }
+          } catch {}
+
           awarenessProtocol.applyAwarenessUpdate(
             room.awareness,
-            decoding.readVarUint8Array(decoder),
+            awarenessUpdate,
             ws
           );
           break;
@@ -621,6 +641,21 @@ export function createCollabServer(options = {}) {
     console.log(
       `[CollabServer] Client disconnected from room "${pageId}". Remaining clients: ${room.clients.size}`
     );
+
+    // Immediately remove this connection's awareness states to prevent ghost cursors and stale avatars
+    if (ws.collabAwarenessClientIds && ws.collabAwarenessClientIds.size > 0) {
+      const clientIdsToRemove = Array.from(ws.collabAwarenessClientIds);
+      try {
+        awarenessProtocol.removeAwarenessStates(
+          room.awareness,
+          clientIdsToRemove,
+          null
+        );
+      } catch (err) {
+        console.error(`[CollabServer] Error removing awareness states for room "${pageId}":`, err);
+      }
+      ws.collabAwarenessClientIds.clear();
+    }
 
     // When last client leaves, schedule room disposal after grace period
     if (room.clients.size === 0) {
