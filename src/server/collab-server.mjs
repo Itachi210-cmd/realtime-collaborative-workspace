@@ -19,6 +19,13 @@ import * as authProtocol from 'y-protocols/auth';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import { jwtVerify } from 'jose';
+import {
+  loadDocumentState,
+  scheduleSave,
+  flushSave,
+  closePersistence,
+  sanitizeAwarenessUpdate,
+} from './collab-persistence.mjs';
 
 // Protocol Message Constants
 const MESSAGE_SYNC = 0;
@@ -159,83 +166,126 @@ export function createCollabServer(options = {}) {
     : (process.env.COLLAB_ALLOWED_ORIGINS || defaultAllowedOrigins.join(','));
   const allowedOrigins = [...new Set(rawOrigins.split(',').map((o) => o.trim()).filter(Boolean))];
 
+  const loadState = options.loadDocumentState || loadDocumentState;
+
   // In-memory room storage: Map<pageId, CollabRoom>
   const rooms = new Map();
+  // In-flight room hydration deduplication: Map<pageId, Promise<CollabRoom>>
+  const roomHydrationPromises = new Map();
 
   /**
-   * Retrieves or initializes a collaboration room for a given pageId.
+   * Retrieves or initializes a collaboration room for a given pageId,
+   * awaiting database hydration before returning.
    *
    * @param {string} pageId
-   * @returns {Object} CollabRoom
+   * @returns {Promise<Object>} CollabRoom
    */
-  function getOrCreateRoom(pageId) {
+  async function getOrCreateRoom(pageId) {
     let room = rooms.get(pageId);
-    if (!room) {
-      const doc = new Y.Doc();
-      const awareness = new awarenessProtocol.Awareness(doc);
-      const clients = new Set();
-
-      room = {
-        pageId,
-        doc,
-        awareness,
-        clients,
-        cleanupTimer: null,
-      };
-
-      // Broadcast doc updates to other authenticated room clients
-      doc.on('update', (update, origin) => {
-        const encoder = encoding.createEncoder();
-        encoding.writeVarUint(encoder, MESSAGE_SYNC);
-        syncProtocol.writeUpdate(encoder, update);
-        const msg = encoding.toUint8Array(encoder);
-
-        for (const client of room.clients) {
-          if (client !== origin && client.readyState === WebSocket.OPEN && client.isCollabAuthenticated) {
-            try {
-              client.send(msg, { binary: true }, (err) => {
-                if (err) {
-                  console.error(`[CollabServer] Error sending doc update in room "${pageId}":`, err.message);
-                }
-              });
-            } catch (err) {
-              console.error(`[CollabServer] Failed broadcasting doc update in room "${pageId}":`, err);
-            }
-          }
-        }
-      });
-
-      // Broadcast awareness updates to other authenticated room clients
-      awareness.on('update', ({ added, updated, removed }, origin) => {
-        const changedClients = added.concat(updated).concat(removed);
-        const encoder = encoding.createEncoder();
-        encoding.writeVarUint(encoder, MESSAGE_AWARENESS);
-        encoding.writeVarUint8Array(
-          encoder,
-          awarenessProtocol.encodeAwarenessUpdate(awareness, changedClients)
-        );
-        const msg = encoding.toUint8Array(encoder);
-
-        for (const client of room.clients) {
-          if (client !== origin && client.readyState === WebSocket.OPEN && client.isCollabAuthenticated) {
-            try {
-              client.send(msg, { binary: true }, (err) => {
-                if (err) {
-                  console.error(`[CollabServer] Error sending awareness update in room "${pageId}":`, err.message);
-                }
-              });
-            } catch (err) {
-              console.error(`[CollabServer] Failed broadcasting awareness update in room "${pageId}":`, err);
-            }
-          }
-        }
-      });
-
-      rooms.set(pageId, room);
-      console.log(`[CollabServer] Initialized new room "${pageId}"`);
+    if (room) {
+      return room;
     }
 
-    return room;
+    // Deduplicate simultaneous hydration requests for the same room
+    let hydrationPromise = roomHydrationPromises.get(pageId);
+    if (hydrationPromise) {
+      return await hydrationPromise;
+    }
+
+    const doc = new Y.Doc();
+    const awareness = new awarenessProtocol.Awareness(doc);
+    const clients = new Set();
+
+    room = {
+      pageId,
+      doc,
+      awareness,
+      clients,
+      cleanupTimer: null,
+      isDestroyed: false,
+    };
+
+    hydrationPromise = (async () => {
+      try {
+        console.log(`[CollabServer] Loading persisted state for room "${pageId}"...`);
+        const loadResult = await loadState(pageId, doc);
+        console.log(
+          `[CollabServer] Room "${pageId}" hydrated successfully (source: ${loadResult.source}, version: ${loadResult.version})`
+        );
+
+        // Attach doc update listener AFTER hydration completes so initial load doesn't trigger save
+        doc.on('update', (update, origin) => {
+          const encoder = encoding.createEncoder();
+          encoding.writeVarUint(encoder, MESSAGE_SYNC);
+          syncProtocol.writeUpdate(encoder, update);
+          const msg = encoding.toUint8Array(encoder);
+
+          for (const client of room.clients) {
+            if (client !== origin && client.readyState === WebSocket.OPEN && client.isCollabAuthenticated) {
+              try {
+                client.send(msg, { binary: true }, (err) => {
+                  if (err) {
+                    console.error(`[CollabServer] Error sending doc update in room "${pageId}":`, err.message);
+                  }
+                });
+              } catch (err) {
+                console.error(`[CollabServer] Failed broadcasting doc update in room "${pageId}":`, err);
+              }
+            }
+          }
+
+          // Trigger debounced persistence for non-persistence updates
+          if (origin !== 'persistence' && !room.isDestroyed) {
+            scheduleSave(pageId, doc).catch((err) => {
+              console.error(`[CollabServer] Error during scheduled persistence for room "${pageId}":`, err.message);
+            });
+          }
+        });
+
+        // Broadcast awareness updates to other authenticated room clients
+        awareness.on('update', ({ added, updated, removed }, origin) => {
+          const changedClients = added.concat(updated).concat(removed);
+          const encoder = encoding.createEncoder();
+          encoding.writeVarUint(encoder, MESSAGE_AWARENESS);
+          encoding.writeVarUint8Array(
+            encoder,
+            awarenessProtocol.encodeAwarenessUpdate(awareness, changedClients)
+          );
+          const msg = encoding.toUint8Array(encoder);
+
+          for (const client of room.clients) {
+            if (client !== origin && client.readyState === WebSocket.OPEN && client.isCollabAuthenticated) {
+              try {
+                client.send(msg, { binary: true }, (err) => {
+                  if (err) {
+                    console.error(`[CollabServer] Error sending awareness update in room "${pageId}":`, err.message);
+                  }
+                });
+              } catch (err) {
+                console.error(`[CollabServer] Failed broadcasting awareness update in room "${pageId}":`, err);
+              }
+            }
+          }
+        });
+
+        rooms.set(pageId, room);
+        console.log(`[CollabServer] Initialized and registered hydrated room "${pageId}"`);
+        return room;
+      } catch (err) {
+        console.error(`[CollabServer] Failed hydrating room "${pageId}":`, err.message);
+        try {
+          awareness.destroy();
+          doc.destroy();
+        } catch {}
+        rooms.delete(pageId);
+        throw err;
+      } finally {
+        roomHydrationPromises.delete(pageId);
+      }
+    })();
+
+    roomHydrationPromises.set(pageId, hydrationPromise);
+    return await hydrationPromise;
   }
 
   // HTTP Server (Health check + Upgrade routing)
@@ -484,7 +534,18 @@ export function createCollabServer(options = {}) {
       workspaceId: payload.workspaceId,
     };
 
-    const room = getOrCreateRoom(pageId);
+    let room;
+    try {
+      room = await getOrCreateRoom(pageId);
+    } catch (err) {
+      console.error(`[CollabServer] Room hydration failed for "${pageId}":`, err.message);
+      sendPermissionDenied(ws, 'Internal Error: Document state hydration failed');
+      try {
+        ws.close(1011, 'Document state hydration failed');
+      } catch {}
+      ws.terminate();
+      return;
+    }
     room.clients.add(ws);
 
     // Cancel pending cleanup timer if client connected
@@ -581,10 +642,21 @@ export function createCollabServer(options = {}) {
           break;
         }
         case MESSAGE_AWARENESS: {
-          const awarenessUpdate = decoding.readVarUint8Array(decoder);
+          const rawAwarenessUpdate = decoding.readVarUint8Array(decoder);
+          let sanitizedAwarenessUpdate = rawAwarenessUpdate;
+
+          // Enforce server-side identity binding using verified JWT credentials
+          if (ws.collabUser) {
+            try {
+              sanitizedAwarenessUpdate = sanitizeAwarenessUpdate(rawAwarenessUpdate, ws.collabUser);
+            } catch (err) {
+              console.error(`[CollabServer] Error sanitizing awareness update in room "${pageId}":`, err.message);
+            }
+          }
+
           // Track controlled client IDs for this connection to enable immediate disconnect cleanup
           try {
-            const updateDecoder = decoding.createDecoder(awarenessUpdate);
+            const updateDecoder = decoding.createDecoder(sanitizedAwarenessUpdate);
             const updateLen = decoding.readVarUint(updateDecoder);
             for (let i = 0; i < updateLen; i++) {
               const clientID = decoding.readVarUint(updateDecoder);
@@ -603,7 +675,7 @@ export function createCollabServer(options = {}) {
 
           awarenessProtocol.applyAwarenessUpdate(
             room.awareness,
-            awarenessUpdate,
+            sanitizedAwarenessUpdate,
             ws
           );
           break;
@@ -662,16 +734,20 @@ export function createCollabServer(options = {}) {
       console.log(
         `[CollabServer] Room "${pageId}" is empty. Starting ${cleanupGraceMs}ms cleanup timer.`
       );
-      room.cleanupTimer = setTimeout(() => {
+      room.cleanupTimer = setTimeout(async () => {
         if (room.clients.size === 0) {
-          console.log(`[CollabServer] Room cleanup timer expired. Destroying room "${pageId}".`);
+          console.log(`[CollabServer] Room cleanup timer expired. Flushing and destroying room "${pageId}".`);
           try {
+            await flushSave(pageId, room.doc);
+            console.log(`[CollabServer] Successfully flushed state for room "${pageId}" before disposal.`);
+            room.isDestroyed = true;
             room.awareness.destroy();
             room.doc.destroy();
+            rooms.delete(pageId);
           } catch (err) {
-            console.error(`[CollabServer] Error during room destruction for "${pageId}":`, err);
+            console.error(`[CollabServer] Failed flushing state during room destruction for "${pageId}":`, err.message);
+            // Retain room in memory so pending changes are not lost
           }
-          rooms.delete(pageId);
         }
       }, cleanupGraceMs);
     }
@@ -702,32 +778,61 @@ export function createCollabServer(options = {}) {
   /**
    * Gracefully shuts down the server, closing all sockets and rooms.
    */
-  function close() {
-    return new Promise((resolve) => {
-      // Clear timers and destroy rooms
-      for (const room of rooms.values()) {
-        if (room.cleanupTimer) {
-          clearTimeout(room.cleanupTimer);
-        }
-        for (const client of room.clients) {
-          try {
-            client.terminate();
-          } catch {}
-        }
+  async function close() {
+    // 1. Clear room cleanup timers
+    for (const room of rooms.values()) {
+      if (room.cleanupTimer) {
+        clearTimeout(room.cleanupTimer);
+        room.cleanupTimer = null;
+      }
+    }
+
+    // 2. Disconnect active clients gracefully
+    for (const room of rooms.values()) {
+      for (const client of room.clients) {
         try {
-          room.awareness.destroy();
-          room.doc.destroy();
+          client.close(1001, 'Server shutting down');
         } catch {}
       }
-      rooms.clear();
+    }
 
+    // 3. Flush all active rooms to PostgreSQL in parallel
+    const flushPromises = [];
+    for (const [pageId, room] of rooms.entries()) {
+      flushPromises.push(
+        flushSave(pageId, room.doc)
+          .then(() => {
+            console.log(`[CollabServer] Flushed room "${pageId}" on shutdown.`);
+          })
+          .catch((err) => {
+            console.error(`[CollabServer] Error flushing room "${pageId}" on shutdown:`, err.message);
+          })
+      );
+    }
+    await Promise.allSettled(flushPromises);
+
+    // 4. Destroy room CRDTs
+    for (const room of rooms.values()) {
+      try {
+        room.isDestroyed = true;
+        room.awareness.destroy();
+        room.doc.destroy();
+      } catch {}
+    }
+    rooms.clear();
+
+    // 5. Close WebSocket server and HTTP server
+    await new Promise((resolve) => {
       wss.close(() => {
-        server.close(() => {
-          console.log('[CollabServer] Server shutdown complete.');
-          resolve();
-        });
+        server.close(resolve);
       });
     });
+
+    // 6. Close persistence pool if requested
+    if (options.closePersistence === true) {
+      await closePersistence();
+    }
+    console.log('[CollabServer] Server shutdown complete.');
   }
 
   return {
@@ -761,8 +866,28 @@ function isDirectExecution() {
 }
 
 if (isDirectExecution()) {
-  startCollabServer().catch((err) => {
-    console.error('[CollabServer] Fatal startup error:', err);
-    process.exit(1);
-  });
+  let serverInstance = null;
+  const gracefulExit = async (signal) => {
+    console.log(`[CollabServer] Received ${signal}. Initiating graceful shutdown...`);
+    if (serverInstance) {
+      try {
+        await serverInstance.close();
+      } catch (err) {
+        console.error('[CollabServer] Error during shutdown:', err);
+      }
+    }
+    process.exit(0);
+  };
+
+  process.on('SIGINT', () => gracefulExit('SIGINT'));
+  process.on('SIGTERM', () => gracefulExit('SIGTERM'));
+
+  startCollabServer()
+    .then((inst) => {
+      serverInstance = inst;
+    })
+    .catch((err) => {
+      console.error('[CollabServer] Fatal startup error:', err);
+      process.exit(1);
+    });
 }
