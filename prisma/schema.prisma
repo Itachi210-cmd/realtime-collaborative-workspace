@@ -23,6 +23,7 @@ model User {
   ownedWorkspaces Workspace[]       @relation("WorkspaceOwner")
   memberships     WorkspaceMember[]
   createdPages    Page[]
+  comments        Comment[]
 
   @@map("users")
 }
@@ -66,6 +67,7 @@ model Page {
   title         String
   content       Json?
   documentState DocumentState?
+  comments      Comment[]
   createdById   String
   createdBy     User           @relation(fields: [createdById], references: [id], onDelete: Cascade)
   createdAt     DateTime       @default(now())
@@ -87,4 +89,21 @@ model DocumentState {
   updatedAt    DateTime @updatedAt
 
   @@map("document_states")
+}
+
+model Comment {
+  id         String    @id @default(cuid())
+  pageId     String
+  page       Page      @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  authorId   String
+  author     User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  body       String
+  anchor     Json?
+  resolvedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([pageId])
+  @@index([authorId])
+  @@map("comments")
 }

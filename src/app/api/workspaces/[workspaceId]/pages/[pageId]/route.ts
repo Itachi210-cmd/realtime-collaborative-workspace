@@ -71,7 +71,6 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       );
     }
 
-    // Role check: Only OWNER or EDITOR can edit documents
     const { isOwner, membership } = authCheck.data;
     const canEdit = isOwner || membership?.role === Role.EDITOR;
     if (!canEdit) {
@@ -149,6 +148,19 @@ export async function DELETE(request: Request, { params }: RouteParams) {
       return NextResponse.json(
         { error: authCheck.error },
         { status: authCheck.status }
+      );
+    }
+
+    const { isOwner, membership } = authCheck.data;
+    const effectiveRole: Role = isOwner ? Role.OWNER : (membership?.role as Role);
+
+    if (effectiveRole !== Role.OWNER && effectiveRole !== Role.EDITOR) {
+      return NextResponse.json(
+        {
+          error:
+            "Forbidden: You do not have permission to delete pages in this workspace.",
+        },
+        { status: 403 }
       );
     }
 

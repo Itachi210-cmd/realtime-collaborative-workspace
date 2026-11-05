@@ -427,36 +427,37 @@ async function runTests() {
     }
 
     // -------------------------------------------------------------
-    // Test 8: VIEWER and COMMENTER tokens are rejected
+    // Test 8: Unauthorized roles (e.g. GUEST, ANONYMOUS) are rejected with 4403
+    // (Phase 9 expands authorized roles to OWNER, EDITOR, COMMENTER, VIEWER)
     // -------------------------------------------------------------
     try {
-      const pageIdViewer = 'page-role-viewer';
-      const viewerToken = await generateTestToken({ pageId: pageIdViewer, role: 'VIEWER' });
-      const viewerCloseCode = await new Promise((resolve, reject) => {
-        const ws = new WebSocket(`ws://127.0.0.1:${TEST_PORT}/${pageIdViewer}`);
-        ws.on('open', () => ws.send(JSON.stringify({ type: 'auth', token: viewerToken })));
+      const pageIdGuest = 'page-role-guest';
+      const guestToken = await generateTestToken({ pageId: pageIdGuest, role: 'GUEST' });
+      const guestCloseCode = await new Promise((resolve, reject) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${TEST_PORT}/${pageIdGuest}`);
+        ws.on('open', () => ws.send(JSON.stringify({ type: 'auth', token: guestToken })));
         ws.on('close', (code) => resolve(code));
         ws.on('error', () => {});
-        setTimeout(() => reject(new Error('Viewer connection not closed')), 3000);
+        setTimeout(() => reject(new Error('Guest connection not closed')), 3000);
       });
 
-      const pageIdCommenter = 'page-role-commenter';
-      const commenterToken = await generateTestToken({ pageId: pageIdCommenter, role: 'COMMENTER' });
-      const commenterCloseCode = await new Promise((resolve, reject) => {
-        const ws = new WebSocket(`ws://127.0.0.1:${TEST_PORT}/${pageIdCommenter}`);
-        ws.on('open', () => ws.send(JSON.stringify({ type: 'auth', token: commenterToken })));
+      const pageIdAnon = 'page-role-anon';
+      const anonToken = await generateTestToken({ pageId: pageIdAnon, role: 'ANONYMOUS' });
+      const anonCloseCode = await new Promise((resolve, reject) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${TEST_PORT}/${pageIdAnon}`);
+        ws.on('open', () => ws.send(JSON.stringify({ type: 'auth', token: anonToken })));
         ws.on('close', (code) => resolve(code));
         ws.on('error', () => {});
-        setTimeout(() => reject(new Error('Commenter connection not closed')), 3000);
+        setTimeout(() => reject(new Error('Anonymous connection not closed')), 3000);
       });
 
-      if (viewerCloseCode === 4403 && commenterCloseCode === 4403) {
-        logPass(8, 'VIEWER and COMMENTER tokens are rejected with 4403', `Viewer: ${viewerCloseCode}, Commenter: ${commenterCloseCode}`);
+      if (guestCloseCode === 4403 && anonCloseCode === 4403) {
+        logPass(8, 'Unauthorized roles (GUEST, ANONYMOUS) are rejected with 4403', `Guest: ${guestCloseCode}, Anon: ${anonCloseCode}`);
       } else {
-        throw new Error(`Expected 4403 for both, got Viewer: ${viewerCloseCode}, Commenter: ${commenterCloseCode}`);
+        throw new Error(`Expected 4403 for both, got Guest: ${guestCloseCode}, Anon: ${anonCloseCode}`);
       }
     } catch (err) {
-      logFail(8, 'VIEWER and COMMENTER tokens are rejected', err);
+      logFail(8, 'Unauthorized roles are rejected', err);
     }
 
     // -------------------------------------------------------------

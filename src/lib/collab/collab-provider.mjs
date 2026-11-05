@@ -73,6 +73,7 @@ export function getDefaultCollabWsUrl() {
  * @param {(status: string, error?: string | null) => void} [options.onStatusChange]
  * @param {(saveStatus: string, details?: any) => void} [options.onSaveStatusChange]
  * @param {(isSynced: boolean) => void} [options.onSyncChange]
+ * @param {(reason: string) => void} [options.onPermissionDenied]
  * @param {any} [options.BaseWS]
  * @param {boolean} [options.disableBc]
  * @returns {WebsocketProvider}
@@ -87,6 +88,7 @@ export function createCollabWebsocketProvider({
   onStatusChange,
   onSaveStatusChange,
   onSyncChange,
+  onPermissionDenied,
   BaseWS,
   disableBc = false,
 }) {
@@ -144,6 +146,13 @@ export function createCollabWebsocketProvider({
             stateVersion: parsed.stateVersion,
           });
         }
+      }
+    } else if (parsed.type === 'permission_denied') {
+      if (providerInstance) {
+        providerInstance.emit('permission-denied', [parsed.reason]);
+      }
+      if (onPermissionDenied) {
+        onPermissionDenied(parsed.reason);
       }
     }
   };

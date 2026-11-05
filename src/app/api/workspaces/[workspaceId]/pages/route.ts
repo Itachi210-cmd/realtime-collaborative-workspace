@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { checkWorkspaceAccess } from "@/lib/auth/workspace-auth";
 import { createPageSchema, DEFAULT_PAGE_CONTENT } from "@/lib/validations/page";
 import { prisma } from "@/lib/prisma";
+import { Role } from "@prisma/client";
 
 interface RouteParams {
   params: Promise<{
@@ -61,6 +62,19 @@ export async function POST(request: Request, { params }: RouteParams) {
       );
     }
 
+    const { isOwner, membership, session } = authCheck.data;
+    const effectiveRole: Role = isOwner ? Role.OWNER : (membership?.role as Role);
+
+    if (effectiveRole !== Role.OWNER && effectiveRole !== Role.EDITOR) {
+      return NextResponse.json(
+        {
+          error:
+            "Forbidden: You do not have permission to create pages in this workspace.",
+        },
+        { status: 403 }
+      );
+    }
+
     const body = await request.json();
     const parseResult = createPageSchema.safeParse(body);
     if (!parseResult.success) {
@@ -93,8 +107,6 @@ export async function POST(request: Request, { params }: RouteParams) {
         );
       }
     }
-
-    const session = authCheck.data.session;
 
     const page = await prisma.page.create({
       data: {

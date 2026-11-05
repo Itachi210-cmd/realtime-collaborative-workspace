@@ -52,18 +52,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       );
     }
 
-    // 3. Determine database-derived role: only OWNER and EDITOR are permitted
+    // 3. Determine database-derived role: all four workspace roles (OWNER, EDITOR, COMMENTER, VIEWER) are permitted
     const effectiveRole: Role = isOwner ? Role.OWNER : (membership?.role as Role);
-
-    if (effectiveRole !== Role.OWNER && effectiveRole !== Role.EDITOR) {
-      return NextResponse.json(
-        {
-          error:
-            "Forbidden: Only workspace owners and editors can join real-time collaboration rooms.",
-        },
-        { status: 403, headers: NO_STORE_HEADERS }
-      );
-    }
 
     // 4. Mint short-lived JWT token (never trusting client-supplied payload)
     const token = await createCollabToken({

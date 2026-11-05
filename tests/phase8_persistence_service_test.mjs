@@ -573,6 +573,9 @@ async function runTests() {
     );
 
   } finally {
+    // Wait for in-flight debounced saves to settle before deleting test pages
+    await new Promise((r) => setTimeout(r, 600));
+
     // Cleanup created test records
     console.log('\n--- Cleaning up temporary test records ---');
     for (const pageId of createdPageIds) {

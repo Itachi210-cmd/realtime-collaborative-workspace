@@ -218,7 +218,7 @@ async function runTests() {
       `Status: ${t3Res.status}, role: ${t3Data.role}`
     );
 
-    // TEST 4: VIEWER receives 403
+    // TEST 4: VIEWER receives valid collab token (Phase 9 RBAC Model B)
     const t4Res = await fetch(
       `${BASE_URL}/api/workspaces/${workspace1Id}/pages/${page1Id}/collab-token`,
       {
@@ -226,22 +226,23 @@ async function runTests() {
         headers: { Cookie: cookieViewer },
       }
     );
+    const t4Data = await t4Res.json();
     report(
-      "4. VIEWER receives 403 Forbidden",
-      t4Res.status === 403,
+      "4. VIEWER receives a valid token (Phase 9 Model B)",
+      t4Res.status === 200 && t4Data.role === "VIEWER",
       `Status: ${t4Res.status}`
     );
 
-    // TEST 5: COMMENTER receives 403
+    // TEST 5: Non-member receives 403 Forbidden
     const t5Res = await fetch(
-      `${BASE_URL}/api/workspaces/${workspace1Id}/pages/${page1Id}/collab-token`,
+      `${BASE_URL}/api/workspaces/${workspace2Id}/pages/${page2Id}/collab-token`,
       {
         method: "POST",
-        headers: { Cookie: cookieCommenter },
+        headers: { Cookie: cookieViewer }, // cookieViewer is not a member of workspace2
       }
     );
     report(
-      "5. COMMENTER receives 403 Forbidden",
+      "5. Non-member receives 403 Forbidden",
       t5Res.status === 403,
       `Status: ${t5Res.status}`
     );
@@ -321,10 +322,15 @@ async function runTests() {
       }
     );
 
+    const t10Data = await t10Res.json();
+    const { payload: t10Payload } = await jwtVerify(t10Data.token, secretKey, {
+      algorithms: ["HS256"],
+    });
+
     report(
       "10. Client-supplied role or userId cannot override database authorization",
-      t10Res.status === 403,
-      `Viewer with spoofed body received: ${t10Res.status}`
+      t10Payload.role === "VIEWER" && t10Payload.sub === userViewer.id,
+      `Viewer with spoofed body got token with database role: ${t10Payload.role}, sub: ${t10Payload.sub}`
     );
 
   } catch (err) {

@@ -563,8 +563,9 @@ export function createCollabServer(options = {}) {
       return;
     }
 
-    // Validate role authorization: Only OWNER and EDITOR allowed
-    if (payload.role !== 'OWNER' && payload.role !== 'EDITOR') {
+    // Validate role authorization: all four workspace roles allowed
+    const validRoles = ['OWNER', 'EDITOR', 'COMMENTER', 'VIEWER'];
+    if (!validRoles.includes(payload.role)) {
       clearTimeout(authTimer);
       console.warn(`[CollabServer] Role rejected: "${payload.role}" on room "${pageId}"`);
       sendPermissionDenied(ws, `Forbidden: Role ${payload.role} is not permitted to collaborate`);
@@ -727,11 +728,70 @@ export function createCollabServer(options = {}) {
 
       switch (messageType) {
         case MESSAGE_SYNC: {
-          const replyEncoder = encoding.createEncoder();
-          encoding.writeVarUint(replyEncoder, MESSAGE_SYNC);
-          syncProtocol.readSyncMessage(decoder, replyEncoder, room.doc, ws);
-          if (encoding.length(replyEncoder) > 1) {
-            ws.send(encoding.toUint8Array(replyEncoder), { binary: true });
+          const syncMessageType = decoding.readVarUint(decoder);
+          const isReadOnly = ws.collabUser?.role === 'COMMENTER' || ws.collabUser?.role === 'VIEWER';
+
+          if (syncMessageType === syncProtocol.messageYjsSyncStep1) {
+            // Sync Step 1: Handshake requesting missing document state
+            // Permitted for ALL roles so read-only users receive the document
+            const replyEncoder = encoding.createEncoder();
+            encoding.writeVarUint(replyEncoder, MESSAGE_SYNC);
+            syncProtocol.readSyncStep1(decoder, replyEncoder, room.doc);
+            if (encoding.length(replyEncoder) > 1) {
+              ws.send(encoding.toUint8Array(replyEncoder), { binary: true });
+            }
+          } else if (syncMessageType === syncProtocol.messageYjsSyncStep2) {
+            // Sync Step 2: Client returning state in response to server's Step 1
+            if (isReadOnly) {
+              const updateBytes = decoding.readVarUint8Array(decoder);
+              if (updateBytes.length > 2) {
+                console.warn(
+                  `[CollabServer] Dropped unauthorized SyncStep2 update (${updateBytes.length} bytes) from read-only user "${ws.collabUser?.userName}" (${ws.collabUser?.role}) in room "${pageId}"`
+                );
+                sendPermissionDenied(
+                  ws,
+                  `Forbidden: Read-only role ${ws.collabUser?.role} cannot submit document changes.`
+                );
+                try {
+                  ws.send(
+                    JSON.stringify({
+                      type: 'permission_denied',
+                      reason: `Forbidden: Read-only role ${ws.collabUser?.role} cannot submit document changes.`,
+                      role: ws.collabUser?.role,
+                    })
+                  );
+                } catch {}
+              }
+            } else {
+              // OWNER or EDITOR: apply update to room.doc
+              syncProtocol.readSyncStep2(decoder, room.doc, ws);
+            }
+          } else if (syncMessageType === syncProtocol.messageYjsUpdate) {
+            // Incremental document update
+            if (isReadOnly) {
+              const updateBytes = decoding.readVarUint8Array(decoder);
+              console.warn(
+                `[CollabServer] Dropped unauthorized Yjs update (${updateBytes.length} bytes) from read-only user "${ws.collabUser?.userName}" (${ws.collabUser?.role}) in room "${pageId}"`
+              );
+              sendPermissionDenied(
+                ws,
+                `Forbidden: Read-only role ${ws.collabUser?.role} cannot submit document changes.`
+              );
+              try {
+                ws.send(
+                  JSON.stringify({
+                    type: 'permission_denied',
+                    reason: `Forbidden: Read-only role ${ws.collabUser?.role} cannot submit document changes.`,
+                    role: ws.collabUser?.role,
+                  })
+                );
+              } catch {}
+            } else {
+              // OWNER or EDITOR: apply update to room.doc
+              syncProtocol.readUpdate(decoder, room.doc, ws);
+            }
+          } else {
+            console.warn(`[CollabServer] Unknown sync message type ${syncMessageType} in room "${pageId}"`);
           }
           break;
         }

@@ -630,6 +630,9 @@ async function runSuite() {
     syncProtocol.writeUpdate(shutEnc, shutUpdate);
     clientShut.ws.send(encoding.toUint8Array(shutEnc), { binary: true });
 
+    // Allow the binary WebSocket frame to be received and processed by the server
+    await new Promise((r) => setTimeout(r, 60));
+
     // Call server.close() immediately without waiting for debounce
     console.log('Invoking serverInstance.close() with active unsaved room...');
     await serverInstance.close();
@@ -717,33 +720,33 @@ async function runSuite() {
       'Origin security check intact'
     );
 
-    // Viewer role rejection test
-    const tokenViewer = await generateTestToken({
+    // Unauthorized role rejection test (Phase 9 expands legitimate roles to OWNER, EDITOR, COMMENTER, VIEWER; invalid role rejected)
+    const tokenInvalid = await generateTestToken({
       userId: testUser.id,
       userName: testUser.name,
       pageId: pageHydrate.id,
       workspaceId: testWorkspace.id,
-      role: 'VIEWER', // Rejected
+      role: 'GUEST', // Rejected
     });
 
-    let viewerRejected = false;
-    let viewerCloseCode = 0;
-    const viewerWs = new WebSocket(`ws://${TEST_HOST}:${TEST_PORT + 2}/${pageHydrate.id}`, {
+    let roleRejected = false;
+    let roleCloseCode = 0;
+    const invalidWs = new WebSocket(`ws://${TEST_HOST}:${TEST_PORT + 2}/${pageHydrate.id}`, {
       headers: { Origin: 'http://localhost:3000' },
     });
-    viewerWs.on('open', () => {
-      viewerWs.send(JSON.stringify({ token: tokenViewer }));
+    invalidWs.on('open', () => {
+      invalidWs.send(JSON.stringify({ token: tokenInvalid }));
     });
-    viewerWs.on('close', (code) => {
-      viewerRejected = true;
-      viewerCloseCode = code;
+    invalidWs.on('close', (code) => {
+      roleRejected = true;
+      roleCloseCode = code;
     });
     await new Promise((r) => setTimeout(r, 400));
 
     report(
-      'VIEWER role rejected with 4403 Forbidden',
-      viewerRejected && viewerCloseCode === 4403,
-      `Close code: ${viewerCloseCode}`
+      'Unauthorized role rejected with 4403 Forbidden',
+      roleRejected && roleCloseCode === 4403,
+      `Close code: ${roleCloseCode}`
     );
 
     await serverFinal.close();

@@ -139,7 +139,12 @@ export function createAuthenticatedWebSocketClass(
                 return;
               }
 
-              if (parsed && (parsed.type === 'save_status' || parsed.type === 'pong')) {
+              if (
+                parsed &&
+                (parsed.type === 'save_status' ||
+                  parsed.type === 'pong' ||
+                  parsed.type === 'permission_denied')
+              ) {
                 if (onControlMessage) {
                   onControlMessage(parsed);
                 }
