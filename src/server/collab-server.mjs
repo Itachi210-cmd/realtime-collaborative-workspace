@@ -25,6 +25,7 @@ import {
   flushSave,
   closePersistence,
   sanitizeAwarenessUpdate,
+  hasPendingSave,
 } from './collab-persistence.mjs';
 
 // Protocol Message Constants
@@ -172,6 +173,24 @@ export function createCollabServer(options = {}) {
   const rooms = new Map();
   // In-flight room hydration deduplication: Map<pageId, Promise<CollabRoom>>
   const roomHydrationPromises = new Map();
+  let isShuttingDown = false;
+
+  /**
+   * Broadcasts a JSON save status update to all connected authenticated clients in a room.
+   */
+  function broadcastSaveStatus(targetRoom, statusPayload) {
+    if (!targetRoom || targetRoom.isDestroyed) return;
+    const msg = JSON.stringify(statusPayload);
+    for (const client of targetRoom.clients) {
+      if (client.readyState === WebSocket.OPEN && client.isCollabAuthenticated) {
+        try {
+          client.send(msg);
+        } catch (err) {
+          console.error(`[CollabServer] Error sending save status in room "${targetRoom.pageId}":`, err.message);
+        }
+      }
+    }
+  }
 
   /**
    * Retrieves or initializes a collaboration room for a given pageId,
@@ -203,12 +222,16 @@ export function createCollabServer(options = {}) {
       clients,
       cleanupTimer: null,
       isDestroyed: false,
+      lastSavedVersion: 0,
+      hasUnsavedChanges: false,
     };
 
     hydrationPromise = (async () => {
       try {
         console.log(`[CollabServer] Loading persisted state for room "${pageId}"...`);
         const loadResult = await loadState(pageId, doc);
+        room.lastSavedVersion = loadResult.version || 0;
+        room.hasUnsavedChanges = false;
         console.log(
           `[CollabServer] Room "${pageId}" hydrated successfully (source: ${loadResult.source}, version: ${loadResult.version})`
         );
@@ -236,9 +259,37 @@ export function createCollabServer(options = {}) {
 
           // Trigger debounced persistence for non-persistence updates
           if (origin !== 'persistence' && !room.isDestroyed) {
-            scheduleSave(pageId, doc).catch((err) => {
-              console.error(`[CollabServer] Error during scheduled persistence for room "${pageId}":`, err.message);
+            room.hasUnsavedChanges = true;
+            broadcastSaveStatus(room, {
+              type: 'save_status',
+              status: 'saving',
+              pageId,
             });
+
+            scheduleSave(pageId, doc)
+              .then((saveResult) => {
+                room.lastSavedVersion = saveResult.stateVersion;
+                // Only mark saved if no further edits were scheduled during the save
+                if (!hasPendingSave(pageId)) {
+                  room.hasUnsavedChanges = false;
+                  broadcastSaveStatus(room, {
+                    type: 'save_status',
+                    status: 'saved',
+                    pageId,
+                    stateVersion: saveResult.stateVersion,
+                    savedAt: new Date().toISOString(),
+                  });
+                }
+              })
+              .catch((err) => {
+                console.error(`[CollabServer] Error during scheduled persistence for room "${pageId}":`, err.message);
+                broadcastSaveStatus(room, {
+                  type: 'save_status',
+                  status: 'error',
+                  pageId,
+                  error: 'Failed to persist document to storage',
+                });
+              });
           }
         });
 
@@ -567,10 +618,24 @@ export function createCollabServer(options = {}) {
             type: 'authenticated',
             pageId,
             user: ws.collabUser,
+            stateVersion: room.lastSavedVersion,
+            saveStatus: room.hasUnsavedChanges ? 'saving' : 'saved',
           })
         );
       } catch {}
     }
+
+    // Always send initial save_status frame to authenticated client
+    try {
+      ws.send(
+        JSON.stringify({
+          type: 'save_status',
+          status: room.hasUnsavedChanges ? 'saving' : 'saved',
+          pageId,
+          stateVersion: room.lastSavedVersion,
+        })
+      );
+    } catch {}
 
     // Initiate Yjs sync: Send server's Sync Step 1
     try {
@@ -612,7 +677,7 @@ export function createCollabServer(options = {}) {
       return;
     }
 
-    // Check for JSON control frames (ping/pong, test signals)
+    // Check for JSON control frames (ping/pong, test signals, save_retry)
     if (
       typeof data === 'string' ||
       (!isBinary && typeof data === 'object' && !(data instanceof Uint8Array) && !Buffer.isBuffer(data))
@@ -621,6 +686,35 @@ export function createCollabServer(options = {}) {
         const parsed = typeof data === 'string' ? JSON.parse(data) : data;
         if (parsed.type === 'ping') {
           ws.send(JSON.stringify({ type: 'pong' }));
+        } else if (parsed.type === 'save_retry') {
+          broadcastSaveStatus(room, {
+            type: 'save_status',
+            status: 'saving',
+            pageId,
+          });
+          scheduleSave(pageId, room.doc)
+            .then((saveResult) => {
+              room.lastSavedVersion = saveResult.stateVersion;
+              if (!hasPendingSave(pageId)) {
+                room.hasUnsavedChanges = false;
+                broadcastSaveStatus(room, {
+                  type: 'save_status',
+                  status: 'saved',
+                  pageId,
+                  stateVersion: saveResult.stateVersion,
+                  savedAt: new Date().toISOString(),
+                });
+              }
+            })
+            .catch((err) => {
+              console.error(`[CollabServer] Retry save error for room "${pageId}":`, err.message);
+              broadcastSaveStatus(room, {
+                type: 'save_status',
+                status: 'error',
+                pageId,
+                error: 'Failed to persist document to storage',
+              });
+            });
         }
       } catch {}
       return;
@@ -729,8 +823,8 @@ export function createCollabServer(options = {}) {
       ws.collabAwarenessClientIds.clear();
     }
 
-    // When last client leaves, schedule room disposal after grace period
-    if (room.clients.size === 0) {
+    // When last client leaves, schedule room disposal after grace period (if server is not shutting down)
+    if (room.clients.size === 0 && !isShuttingDown && !room.isDestroyed) {
       console.log(
         `[CollabServer] Room "${pageId}" is empty. Starting ${cleanupGraceMs}ms cleanup timer.`
       );
@@ -738,15 +832,27 @@ export function createCollabServer(options = {}) {
         if (room.clients.size === 0) {
           console.log(`[CollabServer] Room cleanup timer expired. Flushing and destroying room "${pageId}".`);
           try {
-            await flushSave(pageId, room.doc);
-            console.log(`[CollabServer] Successfully flushed state for room "${pageId}" before disposal.`);
+            if (room.hasUnsavedChanges || hasPendingSave(pageId)) {
+              await flushSave(pageId, room.doc);
+              console.log(`[CollabServer] Successfully flushed state for room "${pageId}" before disposal.`);
+            }
             room.isDestroyed = true;
             room.awareness.destroy();
             room.doc.destroy();
             rooms.delete(pageId);
           } catch (err) {
             console.error(`[CollabServer] Failed flushing state during room destruction for "${pageId}":`, err.message);
-            // Retain room in memory so pending changes are not lost
+            // If the failure is because the page was deleted in DB (foreign key error), prune room to prevent memory leak
+            if (
+              err.code === 'P2003' ||
+              (err.message && (err.message.includes('Foreign key') || err.message.includes('foreign key')))
+            ) {
+              room.isDestroyed = true;
+              room.awareness.destroy();
+              room.doc.destroy();
+              rooms.delete(pageId);
+            }
+            // Retain room in memory for transient connection failures so pending changes are not lost
           }
         }
       }, cleanupGraceMs);
@@ -779,6 +885,8 @@ export function createCollabServer(options = {}) {
    * Gracefully shuts down the server, closing all sockets and rooms.
    */
   async function close() {
+    isShuttingDown = true;
+
     // 1. Clear room cleanup timers
     for (const room of rooms.values()) {
       if (room.cleanupTimer) {
@@ -796,20 +904,32 @@ export function createCollabServer(options = {}) {
       }
     }
 
-    // 3. Flush all active rooms to PostgreSQL in parallel
+    // 3. Flush all active rooms with unsaved edits to PostgreSQL in parallel
     const flushPromises = [];
     for (const [pageId, room] of rooms.entries()) {
-      flushPromises.push(
-        flushSave(pageId, room.doc)
-          .then(() => {
-            console.log(`[CollabServer] Flushed room "${pageId}" on shutdown.`);
-          })
-          .catch((err) => {
-            console.error(`[CollabServer] Error flushing room "${pageId}" on shutdown:`, err.message);
-          })
-      );
+      if (room.hasUnsavedChanges || hasPendingSave(pageId)) {
+        flushPromises.push(
+          flushSave(pageId, room.doc)
+            .then((flushResult) => {
+              if (flushResult) {
+                room.lastSavedVersion = flushResult.stateVersion;
+                room.hasUnsavedChanges = false;
+              }
+              console.log(`[CollabServer] Flushed room "${pageId}" on shutdown.`);
+              return flushResult;
+            })
+            .catch((err) => {
+              console.error(`[CollabServer] Error flushing room "${pageId}" on shutdown:`, err.message);
+              throw err;
+            })
+        );
+      }
     }
-    await Promise.allSettled(flushPromises);
+    const flushResults = await Promise.allSettled(flushPromises);
+    const failedFlushes = flushResults.filter((r) => r.status === 'rejected');
+    if (failedFlushes.length > 0) {
+      console.warn(`[CollabServer] ${failedFlushes.length} room(s) failed to flush during shutdown.`);
+    }
 
     // 4. Destroy room CRDTs
     for (const room of rooms.values()) {

@@ -484,3 +484,14 @@ export function sanitizeAwarenessUpdate(updateBytes, authenticatedUser) {
     };
   });
 }
+
+/**
+ * Checks whether a document has a pending debounced save in progress.
+ *
+ * @param {string} pageId
+ * @returns {boolean}
+ */
+export function hasPendingSave(pageId) {
+  return pendingSaves.has(pageId);
+}
+

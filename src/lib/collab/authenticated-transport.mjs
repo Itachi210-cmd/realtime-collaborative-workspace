@@ -20,7 +20,8 @@
  */
 export function createAuthenticatedWebSocketClass(
   getToken,
-  BaseWS = typeof window !== 'undefined' ? window.WebSocket : null
+  BaseWS = typeof window !== 'undefined' ? window.WebSocket : null,
+  onControlMessage = null
 ) {
   return class AuthenticatedWebSocket {
     // Static readyState constants required by y-websocket (e.g. ws.readyState === ws.OPEN)
@@ -117,7 +118,7 @@ export function createAuthenticatedWebSocketClass(
         this.rawWs.onmessage = (event) => {
           if (this.isClosed) return;
 
-          // Check for JSON authentication acknowledgment
+          // Check for JSON control frames (authenticated, save_status, pong)
           if (typeof event.data === 'string') {
             try {
               const parsed = JSON.parse(event.data);
@@ -131,12 +132,24 @@ export function createAuthenticatedWebSocketClass(
                     this.rawWs.send(queued);
                   }
                 }
+                if (onControlMessage) {
+                  onControlMessage(parsed);
+                }
                 // Do not forward server's JSON handshake message to y-websocket
+                return;
+              }
+
+              if (parsed && (parsed.type === 'save_status' || parsed.type === 'pong')) {
+                if (onControlMessage) {
+                  onControlMessage(parsed);
+                }
                 return;
               }
             } catch {
               // Non-JSON string or plain text
             }
+            // Discard unhandled string messages so y-websocket never attempts to parse text as binary
+            return;
           }
 
           // Handle Blob payloads safely by converting to ArrayBuffer

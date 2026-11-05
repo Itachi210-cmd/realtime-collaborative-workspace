@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useMemo, useEffect, useSyncExternalStore } from "react";
+import React, { useState, useRef, useMemo, useEffect, useCallback, useSyncExternalStore } from "react";
 import { useEditor, EditorContent, type JSONContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -12,10 +12,13 @@ import { EditorToolbar } from "./EditorToolbar";
 import { DocumentTitle } from "./DocumentTitle";
 import { CollabStatusBadge } from "./CollabStatusBadge";
 import { CollaboratorAvatars } from "./CollaboratorAvatars";
+import { SaveStatusBadge, type SaveStatus } from "./SaveStatusBadge";
 import { getCollaboratorColor } from "@/lib/collab/collab-colors";
 import {
   createCollabWebsocketProvider,
   type CollabConnectionStatus,
+  type CollabWebsocketProvider,
+  type SaveStatusDetails,
 } from "@/lib/collab/collab-provider";
 import { DEFAULT_PAGE_CONTENT } from "@/lib/validations/page";
 import { useRouter } from "next/navigation";
@@ -55,6 +58,14 @@ export function RichTextEditor({
 
   const [collabStatus, setCollabStatus] = useState<CollabConnectionStatus>("connecting");
   const [collabError, setCollabError] = useState<string | null>(null);
+  const [isSynced, setIsSynced] = useState<boolean>(false);
+  const [serverSaveStatus, setServerSaveStatus] = useState<"saved" | "saving" | "error">("saved");
+  const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
+
+  // Monotonic tracking of local user edits to prevent stale acknowledgements
+  const localEditCountRef = useRef<number>(0);
+  const lastAcknowledgedEditCountRef = useRef<number>(0);
+  const [hasPendingLocalEdits, setHasPendingLocalEdits] = useState<boolean>(false);
 
   // Deterministically assign accessible color based on authenticated userId
   const userColor = useMemo(() => {
@@ -96,7 +107,27 @@ export function RichTextEditor({
     });
   }, [awareness, currentUser, userColor]);
 
-  const providerRef = useRef<ReturnType<typeof createCollabWebsocketProvider> | null>(null);
+  const providerRef = useRef<CollabWebsocketProvider | null>(null);
+
+  // Track local editor updates to ensure status immediately shows "saving" and avoids stale acknowledgements
+  useEffect(() => {
+    if (!isEditable || !ydoc) return;
+
+    const handleDocUpdate = (_update: Uint8Array, origin: unknown) => {
+      // If the update originated from the WebSocket sync or initial persistence load, do not mark as local pending edit
+      if (origin === providerRef.current || origin === "persistence") {
+        return;
+      }
+      localEditCountRef.current += 1;
+      setHasPendingLocalEdits(true);
+      setServerSaveStatus("saving");
+    };
+
+    ydoc.on("update", handleDocUpdate);
+    return () => {
+      ydoc.off("update", handleDocUpdate);
+    };
+  }, [ydoc, isEditable]);
 
   // Manage WebSocket provider lifecycle in useEffect (resilient to React StrictMode and component remounts)
   useEffect(() => {
@@ -111,6 +142,23 @@ export function RichTextEditor({
         setCollabStatus(status as CollabConnectionStatus);
         setCollabError(err || null);
       },
+      onSaveStatusChange: (status, details?: SaveStatusDetails) => {
+        if (status === "saved") {
+          // Document persistence acknowledged by server
+          lastAcknowledgedEditCountRef.current = localEditCountRef.current;
+          setHasPendingLocalEdits(false);
+          setServerSaveStatus("saved");
+          setSaveErrorMessage(null);
+        } else if (status === "saving") {
+          setServerSaveStatus("saving");
+        } else if (status === "error") {
+          setServerSaveStatus("error");
+          setSaveErrorMessage(details?.error || "Save failed. Changes pending retry.");
+        }
+      },
+      onSyncChange: (synced: boolean) => {
+        setIsSynced(synced);
+      },
     });
 
     providerRef.current = collabProvider;
@@ -120,6 +168,44 @@ export function RichTextEditor({
       providerRef.current = null;
     };
   }, [isMounted, isEditable, workspaceId, pageId, ydoc, awareness]);
+
+  // Unified document persistence & sync status state machine
+  const currentDocStatus: SaveStatus = useMemo(() => {
+    if (!isEditable) return "saved";
+
+    // 1. Connection-level states take precedence
+    if (collabStatus === "connecting") return "connecting";
+    if (collabStatus === "reconnecting") return "reconnecting";
+    if (collabStatus === "disconnected") return "offline";
+    if (collabStatus === "auth_error") return "error";
+
+    // 2. Initial Yjs sync pending
+    if (!isSynced) return "syncing";
+
+    // 3. Storage / persistence error
+    if (serverSaveStatus === "error") return "error";
+
+    // 4. Persistence in flight or local edits unacknowledged
+    if (serverSaveStatus === "saving" || hasPendingLocalEdits) {
+      return "saving";
+    }
+
+    // 5. Confirmed persisted in PostgreSQL
+    return "saved";
+  }, [isEditable, collabStatus, isSynced, serverSaveStatus, hasPendingLocalEdits]);
+
+  // Retry handler for connection and persistence errors
+  const handleRetrySave = useCallback(() => {
+    if (collabStatus === "auth_error" || collabStatus === "disconnected") {
+      providerRef.current?.connect();
+    } else if (serverSaveStatus === "error") {
+      setServerSaveStatus("saving");
+      setSaveErrorMessage(null);
+      if (providerRef.current?.retrySave) {
+        providerRef.current.retrySave();
+      }
+    }
+  }, [collabStatus, serverSaveStatus]);
 
   // Initialize TipTap with Collaboration and CollaborationCursor extensions
   const editor = useEditor(
@@ -221,6 +307,13 @@ export function RichTextEditor({
                 awareness={isEditable ? awareness : null}
                 currentUserId={currentUser?.id}
                 currentUserRole={currentUser?.role}
+              />
+
+              {/* Document Persistence & Sync Status Badge */}
+              <SaveStatusBadge
+                status={currentDocStatus}
+                errorMessage={saveErrorMessage || collabError || undefined}
+                onRetry={handleRetrySave}
               />
 
               <div className="flex items-center gap-2 border-l border-neutral-200 pl-3">

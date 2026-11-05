@@ -71,6 +71,8 @@ export function getDefaultCollabWsUrl() {
  * @param {string} [options.serverUrl]
  * @param {() => Promise<string>} [options.getToken]
  * @param {(status: string, error?: string | null) => void} [options.onStatusChange]
+ * @param {(saveStatus: string, details?: any) => void} [options.onSaveStatusChange]
+ * @param {(isSynced: boolean) => void} [options.onSyncChange]
  * @param {any} [options.BaseWS]
  * @param {boolean} [options.disableBc]
  * @returns {WebsocketProvider}
@@ -83,6 +85,8 @@ export function createCollabWebsocketProvider({
   serverUrl = getDefaultCollabWsUrl(),
   getToken,
   onStatusChange,
+  onSaveStatusChange,
+  onSyncChange,
   BaseWS,
   disableBc = false,
 }) {
@@ -101,8 +105,55 @@ export function createCollabWebsocketProvider({
   // Token getter: uses provided getter or calls the Next.js collab-token endpoint
   const tokenGetter = getToken || (() => fetchCollabToken(workspaceId, pageId));
 
-  // Custom Authenticated WebSocket class configured with token getter
-  const AuthWebSocketClass = createAuthenticatedWebSocketClass(tokenGetter, BaseWS);
+  let providerInstance = null;
+
+  // Intercept server-side JSON control messages (save_status, authenticated handshake)
+  const handleControlMessage = (parsed) => {
+    if (!parsed || typeof parsed !== 'object') return;
+
+    if (parsed.type === 'save_status') {
+      if (providerInstance) {
+        providerInstance.saveStatus = parsed.status;
+        if (parsed.stateVersion !== undefined) {
+          providerInstance.stateVersion = parsed.stateVersion;
+        }
+        providerInstance.emit('save-status', [parsed]);
+      }
+      if (onSaveStatusChange) {
+        onSaveStatusChange(parsed.status, parsed);
+      }
+    } else if (parsed.type === 'authenticated') {
+      if (providerInstance && parsed.stateVersion !== undefined) {
+        providerInstance.stateVersion = parsed.stateVersion;
+      }
+      if (parsed.saveStatus) {
+        if (providerInstance) {
+          providerInstance.saveStatus = parsed.saveStatus;
+          providerInstance.emit('save-status', [{
+            type: 'save_status',
+            status: parsed.saveStatus,
+            pageId,
+            stateVersion: parsed.stateVersion,
+          }]);
+        }
+        if (onSaveStatusChange) {
+          onSaveStatusChange(parsed.saveStatus, {
+            type: 'save_status',
+            status: parsed.saveStatus,
+            pageId,
+            stateVersion: parsed.stateVersion,
+          });
+        }
+      }
+    }
+  };
+
+  // Custom Authenticated WebSocket class configured with token getter and control message handler
+  const AuthWebSocketClass = createAuthenticatedWebSocketClass(
+    tokenGetter,
+    BaseWS,
+    handleControlMessage
+  );
 
   // Custom shouldReconnect predicate: halt reconnects on permanent 44xx codes or auth failure
   const shouldReconnect = (event) => {
@@ -120,6 +171,22 @@ export function createCollabWebsocketProvider({
     maxBackoffTime: 5000,
     ...(awareness ? { awareness } : {}),
   });
+
+  providerInstance = provider;
+  provider.saveStatus = 'saved';
+  provider.stateVersion = 0;
+  provider.isSynced = false;
+
+  // Manual retry trigger for save failures
+  provider.retrySave = () => {
+    if (provider.ws && provider.ws.readyState === 1) { // OPEN
+      try {
+        provider.ws.send(JSON.stringify({ type: 'save_retry', pageId }));
+      } catch (err) {
+        console.warn(`[CollabProvider] Failed sending save_retry for "${pageId}":`, err);
+      }
+    }
+  };
 
   // Track provider status events
   provider.on('status', ({ status }) => {
@@ -145,6 +212,10 @@ export function createCollabWebsocketProvider({
 
   // Sync event: ensures connected state is reflected when synchronization completes
   provider.on('sync', (isSynced) => {
+    provider.isSynced = isSynced;
+    if (onSyncChange) {
+      onSyncChange(isSynced);
+    }
     if (isPermanentAuthFailure) return;
     if (isSynced) {
       notifyStatus('connected');
