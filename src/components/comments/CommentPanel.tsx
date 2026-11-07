@@ -69,9 +69,6 @@ export function CommentPanel({
       try {
         const data = await getPageComments(workspaceId, pageId, signal);
         setComments(data);
-        if (onCommentsCountChange) {
-          onCommentsCountChange(data.length);
-        }
       } catch (err: unknown) {
         if (err instanceof DOMException && err.name === "AbortError") return;
         const msg = err instanceof Error ? err.message : "Failed to load comments";
@@ -80,7 +77,7 @@ export function CommentPanel({
         setIsLoading(false);
       }
     },
-    [workspaceId, pageId, onCommentsCountChange]
+    [workspaceId, pageId]
   );
 
   // Fetch comments when pageId or workspaceId changes
@@ -96,9 +93,6 @@ export function CommentPanel({
           setComments(data);
           setError(null);
           setIsLoading(false);
-          if (onCommentsCountChange) {
-            onCommentsCountChange(data.length);
-          }
         }
       } catch (err: unknown) {
         if (!ignore) {
@@ -116,7 +110,16 @@ export function CommentPanel({
       ignore = true;
       controller.abort();
     };
-  }, [workspaceId, pageId, onCommentsCountChange]);
+  }, [workspaceId, pageId]);
+
+  // Safely notify parent of comments count changes in effect phase (preventing render-phase cross-component updates)
+  const lastReportedCountRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!isLoading && lastReportedCountRef.current !== comments.length) {
+      lastReportedCountRef.current = comments.length;
+      onCommentsCountChange?.(comments.length);
+    }
+  }, [comments.length, isLoading, onCommentsCountChange]);
 
   // Handle post new comment
   const handleSubmitComment = async (e: React.FormEvent) => {
@@ -137,11 +140,7 @@ export function CommentPanel({
     setSubmitError(null);
     try {
       const created = await createComment(workspaceId, pageId, trimmed);
-      setComments((prev) => {
-        const next = [...prev, created];
-        if (onCommentsCountChange) onCommentsCountChange(next.length);
-        return next;
-      });
+      setComments((prev) => [...prev, created]);
       setNewCommentBody("");
       addToast({
         message: "Comment added",
@@ -187,11 +186,7 @@ export function CommentPanel({
   // Handle delete comment
   const handleDeleteComment = async (commentId: string) => {
     await deleteComment(workspaceId, pageId, commentId);
-    setComments((prev) => {
-      const next = prev.filter((c) => c.id !== commentId);
-      if (onCommentsCountChange) onCommentsCountChange(next.length);
-      return next;
-    });
+    setComments((prev) => prev.filter((c) => c.id !== commentId));
     addToast({
       message: "Comment deleted",
       variant: "info",
