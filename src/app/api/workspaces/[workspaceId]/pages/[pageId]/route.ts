@@ -3,6 +3,7 @@ import { checkWorkspaceAccess } from "@/lib/auth/workspace-auth";
 import { updatePageSchema } from "@/lib/validations/page";
 import { prisma } from "@/lib/prisma";
 import { Prisma, Role } from "@prisma/client";
+import { workspaceEvents } from "@/lib/events/workspace-events";
 
 interface RouteParams {
   params: Promise<{
@@ -120,6 +121,19 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       },
     });
 
+    // Broadcast real-time page update event to all members of this workspace
+    workspaceEvents.emitWorkspaceEvent(workspaceId, {
+      type: "PAGE_UPDATED",
+      page: {
+        id: updatedPage.id,
+        title: updatedPage.title,
+        parentPageId: updatedPage.parentPageId,
+        workspaceId: updatedPage.workspaceId,
+        createdAt: updatedPage.createdAt,
+        updatedAt: updatedPage.updatedAt,
+      },
+    });
+
     return NextResponse.json(
       {
         message: "Page updated successfully",
@@ -175,6 +189,13 @@ export async function DELETE(request: Request, { params }: RouteParams) {
 
     await prisma.page.delete({
       where: { id: pageId },
+    });
+
+    // Broadcast real-time page deletion event to all members of this workspace
+    workspaceEvents.emitWorkspaceEvent(workspaceId, {
+      type: "PAGE_DELETED",
+      pageId,
+      workspaceId,
     });
 
     return NextResponse.json(

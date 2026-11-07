@@ -61,6 +61,7 @@ async function WorkspaceDocument({
 
   const { workspace, isOwner, membership } = authCheck.data;
   const canEdit = isOwner || membership?.role === Role.EDITOR;
+  const effectiveRole = isOwner ? "OWNER" : (membership?.role || "VIEWER");
   const resolvedSearchParams = searchParamsPromise ? await searchParamsPromise : undefined;
   const pageId = resolvedSearchParams?.page;
 
@@ -74,7 +75,7 @@ async function WorkspaceDocument({
   // Case 1: No page selected in query
   if (!pageId) {
     return (
-      <AppShell workspaceId={workspaceId} pageTitle={workspace.name}>
+      <AppShell workspaceId={workspaceId} pageTitle={workspace.name} userRole={effectiveRole}>
         <div className="py-12 px-4 text-center max-w-md mx-auto space-y-5">
           <div className="w-12 h-12 rounded-full bg-blue-50 text-[#2383e2] flex items-center justify-center mx-auto">
             <Layers className="w-6 h-6" />
@@ -155,7 +156,7 @@ async function WorkspaceDocument({
   }
 
   return (
-    <AppShell workspaceId={workspaceId} pageTitle={activePage.title}>
+    <AppShell workspaceId={workspaceId} pageTitle={activePage.title} userRole={effectiveRole}>
       <div className="space-y-4">
         {/* Document Metadata & Hierarchy Header */}
         <div className="max-w-[768px] mx-auto px-4 sm:px-6 pt-2 space-y-2">
@@ -185,7 +186,7 @@ async function WorkspaceDocument({
             <span>
               Role:{" "}
               <strong className="text-emerald-700 font-semibold">
-                {isOwner ? "Owner" : membership?.role || "Member"}
+                {effectiveRole}
               </strong>
             </span>
           </div>
@@ -203,7 +204,7 @@ async function WorkspaceDocument({
             id: authCheck.data.session.userId,
             name: authCheck.data.session.name,
             email: authCheck.data.session.email,
-            role: isOwner ? "OWNER" : membership?.role || "EDITOR",
+            role: effectiveRole,
           }}
         />
 

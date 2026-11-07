@@ -8,11 +8,15 @@ import Collaboration from "@tiptap/extension-collaboration";
 import { CollaborationCursor } from "@/lib/collab/collaboration-cursor";
 import * as Y from "yjs";
 import * as awarenessProtocol from "y-protocols/awareness";
+import { Eye, MessageSquare } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { EditorToolbar } from "./EditorToolbar";
 import { DocumentTitle } from "./DocumentTitle";
 import { CollabStatusBadge } from "./CollabStatusBadge";
 import { CollaboratorAvatars } from "./CollaboratorAvatars";
 import { SaveStatusBadge, type SaveStatus } from "./SaveStatusBadge";
+import { CommentPanel } from "@/components/comments/CommentPanel";
+import { getPageComments } from "@/lib/api/comments";
 import { getCollaboratorColor } from "@/lib/collab/collab-colors";
 import {
   createCollabWebsocketProvider,
@@ -62,6 +66,10 @@ export function RichTextEditor({
   const [serverSaveStatus, setServerSaveStatus] = useState<"saved" | "saving" | "error">("saved");
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
 
+  // Comments panel state
+  const [isCommentsOpen, setIsCommentsOpen] = useState<boolean>(false);
+  const [commentsCount, setCommentsCount] = useState<number>(0);
+
   // Monotonic tracking of local user edits to prevent stale acknowledgements
   const localEditCountRef = useRef<number>(0);
   const lastAcknowledgedEditCountRef = useRef<number>(0);
@@ -71,18 +79,6 @@ export function RichTextEditor({
   const userColor = useMemo(() => {
     return getCollaboratorColor(currentUser?.id);
   }, [currentUser?.id]);
-
-  // Parse initial content safely (used only when collaboration is inactive)
-  const resolvedInitialContent = useMemo(() => {
-    if (
-      initialContent &&
-      typeof initialContent === "object" &&
-      initialContent.type === "doc"
-    ) {
-      return initialContent;
-    }
-    return DEFAULT_PAGE_CONTENT;
-  }, [initialContent]);
 
   // Maintain stable Y.Doc per pageId (in-memory CRDT, garbage collected on page switch)
   const ydoc = useMemo(() => {
@@ -109,6 +105,25 @@ export function RichTextEditor({
 
   const providerRef = useRef<CollabWebsocketProvider | null>(null);
 
+  // Fetch initial comments count on mount or page switch
+  useEffect(() => {
+    let active = true;
+    async function loadCount() {
+      try {
+        const comments = await getPageComments(workspaceId, pageId);
+        if (active) {
+          setCommentsCount(comments.length);
+        }
+      } catch {
+        // Ignore silent count fetch error
+      }
+    }
+    loadCount();
+    return () => {
+      active = false;
+    };
+  }, [workspaceId, pageId]);
+
   // Track local editor updates to ensure status immediately shows "saving" and avoids stale acknowledgements
   useEffect(() => {
     if (!isEditable || !ydoc) return;
@@ -129,9 +144,9 @@ export function RichTextEditor({
     };
   }, [ydoc, isEditable]);
 
-  // Manage WebSocket provider lifecycle in useEffect (resilient to React StrictMode and component remounts)
+  // Manage WebSocket provider lifecycle for ALL roles (Model B: COMMENTER & VIEWER sync real-time doc & presence)
   useEffect(() => {
-    if (!isMounted || !isEditable) return;
+    if (!isMounted) return;
 
     const collabProvider = createCollabWebsocketProvider({
       workspaceId,
@@ -167,13 +182,11 @@ export function RichTextEditor({
       collabProvider.destroy();
       providerRef.current = null;
     };
-  }, [isMounted, isEditable, workspaceId, pageId, ydoc, awareness]);
+  }, [isMounted, workspaceId, pageId, ydoc, awareness]);
 
   // Unified document persistence & sync status state machine
   const currentDocStatus: SaveStatus = useMemo(() => {
-    if (!isEditable) return "saved";
-
-    // 1. Connection-level states take precedence
+    // 1. Connection-level states take precedence for all roles
     if (collabStatus === "connecting") return "connecting";
     if (collabStatus === "reconnecting") return "reconnecting";
     if (collabStatus === "disconnected") return "offline";
@@ -181,6 +194,9 @@ export function RichTextEditor({
 
     // 2. Initial Yjs sync pending
     if (!isSynced) return "syncing";
+
+    // Read-only viewers and commenters do not make editable changes
+    if (!isEditable) return "saved";
 
     // 3. Storage / persistence error
     if (serverSaveStatus === "error") return "error";
@@ -228,27 +244,22 @@ export function RichTextEditor({
           underline: {},
         }),
         Placeholder.configure({
-          placeholder: "Press '/' for commands, or start typing...",
+          placeholder: isEditable ? "Press '/' for commands, or start typing..." : "",
           emptyEditorClass: "is-editor-empty",
         }),
-        ...(isEditable
-          ? [
-            Collaboration.configure({
-              document: ydoc,
-              field: "default",
-            }),
-            CollaborationCursor.configure({
-              provider: { awareness },
-              user: {
-                name: currentUser?.name || "Anonymous",
-                color: userColor.hex,
-              },
-            }),
-          ]
-          : []),
+        Collaboration.configure({
+          document: ydoc,
+          field: "default",
+        }),
+        CollaborationCursor.configure({
+          provider: { awareness },
+          user: {
+            name: currentUser?.name || "Anonymous",
+            color: userColor.hex,
+          },
+        }),
       ],
       // When collaboration is active, Y.Doc is the source of truth
-      content: isEditable ? undefined : resolvedInitialContent,
       editable: isEditable,
       immediatelyRender: false,
       editorProps: {
@@ -257,10 +268,8 @@ export function RichTextEditor({
             "prose prose-neutral max-w-none focus:outline-none min-h-[360px] text-sm sm:text-base leading-relaxed text-[#37352f]",
         },
       },
-      // HTTP content autosave is disabled while collaboration is active to prevent
-      // overwriting concurrent collaborative edits with stale HTTP PATCH requests.
     },
-    [ydoc, awareness, isEditable, resolvedInitialContent, currentUser?.name, userColor.hex]
+    [ydoc, awareness, isEditable, currentUser?.name, userColor.hex]
   );
 
   if (!isMounted) {
@@ -281,61 +290,118 @@ export function RichTextEditor({
 
   return (
     <div className="space-y-4">
-      {/* Sticky Formatting Toolbar */}
-      <EditorToolbar editor={editor} disabled={!isEditable} />
+      {/* Sticky Formatting Toolbar for Editors OR Read-Only Banner for Commenters/Viewers */}
+      {isEditable ? (
+        <EditorToolbar editor={editor} disabled={false} />
+      ) : (
+        <div className="sticky top-0 z-10 -mx-4 -mt-4 px-4 py-2 bg-neutral-50/95 backdrop-blur-sm border-b border-[#e9e9e7] flex items-center justify-between text-xs text-neutral-600">
+          <div className="flex items-center gap-2 font-medium">
+            <Eye className="w-4 h-4 text-neutral-500 shrink-0" />
+            <span>
+              {currentUser?.role === "COMMENTER"
+                ? "Commenter Mode — You can view and comment, but document editing is disabled."
+                : "View-Only Mode — You have read-only access to this document."}
+            </span>
+          </div>
+          <span className="text-[11px] px-2 py-0.5 rounded bg-neutral-200/70 font-semibold text-neutral-700 uppercase tracking-wider shrink-0">
+            {currentUser?.role || "VIEWER"}
+          </span>
+        </div>
+      )}
 
-      {/* Centered Document Canvas (720px - 768px) */}
-      <div className="max-w-[768px] mx-auto px-4 sm:px-6 py-6 space-y-6">
-        {/* Document Title Header */}
-        <div className="space-y-3 pb-2 border-b border-neutral-100">
-          <DocumentTitle
-            key={pageId}
-            workspaceId={workspaceId}
-            pageId={pageId}
-            initialTitle={initialTitle}
-            isEditable={isEditable}
-            onTitleUpdated={() => {
-              router.refresh();
-            }}
-          />
+      {/* Main Canvas + Side Comments Panel */}
+      <div className="relative flex justify-center w-full">
+        {/* Centered Document Canvas (720px - 768px) */}
+        <div className="flex-1 max-w-[768px] px-4 sm:px-6 py-6 space-y-6">
+          {/* Document Title Header */}
+          <div className="space-y-3 pb-2 border-b border-neutral-100">
+            <DocumentTitle
+              key={pageId}
+              workspaceId={workspaceId}
+              pageId={pageId}
+              initialTitle={initialTitle}
+              isEditable={isEditable}
+              onTitleUpdated={() => {
+                router.refresh();
+              }}
+            />
 
-          <div className="flex items-center justify-between text-xs text-neutral-400">
-            <span>Notion-inspired rich document editor</span>
-            <div className="flex items-center gap-3">
-              {/* Collaborator Presence Avatar Bar */}
-              <CollaboratorAvatars
-                awareness={isEditable ? awareness : null}
-                currentUserId={currentUser?.id}
-                currentUserRole={currentUser?.role}
-              />
-
-              {/* Document Persistence & Sync Status Badge */}
-              <SaveStatusBadge
-                status={currentDocStatus}
-                errorMessage={saveErrorMessage || collabError || undefined}
-                onRetry={handleRetrySave}
-              />
-
-              <div className="flex items-center gap-2 border-l border-neutral-200 pl-3">
-                <span className="text-[11px] text-neutral-400">Collaboration:</span>
-                <CollabStatusBadge
-                  status={isEditable ? collabStatus : "disconnected"}
-                  errorMessage={collabError}
-                  onRetry={() => {
-                    if (providerRef.current) {
-                      providerRef.current.connect();
-                    }
-                  }}
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-400">
+              <span>Notion-inspired rich document editor</span>
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                {/* Collaborator Presence Avatar Bar */}
+                <CollaboratorAvatars
+                  awareness={awareness}
+                  currentUserId={currentUser?.id}
+                  currentUserRole={currentUser?.role}
                 />
+
+                {/* Comments Toggle Button */}
+                <button
+                  type="button"
+                  onClick={() => setIsCommentsOpen((prev) => !prev)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors",
+                    isCommentsOpen
+                      ? "bg-neutral-100 text-neutral-900 border-neutral-300 shadow-inner"
+                      : "bg-white text-neutral-600 border-neutral-200 hover:bg-neutral-50 hover:text-neutral-900"
+                  )}
+                  title={isCommentsOpen ? "Close comments panel" : "Open comments panel"}
+                  aria-label={isCommentsOpen ? "Close comments panel" : "Open comments panel"}
+                >
+                  <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Comments</span>
+                  {commentsCount > 0 && (
+                    <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-semibold bg-neutral-200 text-neutral-800">
+                      {commentsCount}
+                    </span>
+                  )}
+                </button>
+
+                {/* Document Persistence & Sync Status Badge */}
+                <SaveStatusBadge
+                  status={currentDocStatus}
+                  errorMessage={saveErrorMessage || collabError || undefined}
+                  onRetry={handleRetrySave}
+                />
+
+                <div className="flex items-center gap-2 border-l border-neutral-200 pl-3">
+                  <span className="text-[11px] text-neutral-400">Collaboration:</span>
+                  <CollabStatusBadge
+                    status={collabStatus}
+                    errorMessage={collabError}
+                    onRetry={() => {
+                      if (providerRef.current) {
+                        providerRef.current.connect();
+                      }
+                    }}
+                  />
+                </div>
               </div>
             </div>
           </div>
+
+          {/* TipTap Editor Surface */}
+          <div className="min-h-[420px] focus-within:ring-0 editor-surface">
+            <EditorContent editor={editor} />
+          </div>
         </div>
 
-        {/* TipTap Editor Surface */}
-        <div className="min-h-[420px] focus-within:ring-0 editor-surface">
-          <EditorContent editor={editor} />
-        </div>
+        {/* Side Drawer for Comments */}
+        {isCommentsOpen && (
+          <aside className="fixed lg:sticky top-0 lg:top-12 right-0 h-screen lg:h-[calc(100vh-4rem)] z-30 shadow-lg lg:shadow-none bg-white">
+            <CommentPanel
+              key={pageId}
+              workspaceId={workspaceId}
+              pageId={pageId}
+              isOpen={isCommentsOpen}
+              onClose={() => setIsCommentsOpen(false)}
+              currentUserId={currentUser?.id}
+              currentUserRole={currentUser?.role}
+              onCommentsCountChange={(count) => setCommentsCount(count)}
+            />
+          </aside>
+        )}
       </div>
 
       {/* Notion Editor Styles Scoped to TipTap */}

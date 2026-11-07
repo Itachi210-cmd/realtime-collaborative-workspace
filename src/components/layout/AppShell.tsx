@@ -6,23 +6,19 @@ import {
   Menu,
   Share2,
   Users,
-  Copy,
-  Check,
-  Shield,
   LogOut,
 } from "lucide-react";
 import { WorkspaceSidebar } from "@/components/workspace/WorkspaceSidebar";
 import { Button } from "@/components/ui/Button";
-import { Dialog } from "@/components/ui/Dialog";
-import { useToast } from "@/components/ui/Toast";
 import { useCurrentUser } from "@/lib/auth/useCurrentUser";
-import { WorkspaceMemberInfo } from "@/lib/api/workspaces";
+import { ShareDialog } from "@/components/sharing/ShareDialog";
 
 interface AppShellProps {
   children: React.ReactNode;
   workspaceId?: string;
   pageTitle?: string;
   showSidebar?: boolean;
+  userRole?: string;
 }
 
 export function AppShell({
@@ -30,30 +26,30 @@ export function AppShell({
   workspaceId = "ws-main",
   pageTitle = "Page",
   showSidebar = true,
+  userRole,
 }: AppShellProps) {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const [copiedLink, setCopiedLink] = useState(false);
-  const [members, setMembers] = useState<WorkspaceMemberInfo[]>([]);
-  const { addToast } = useToast();
+  const [fetchedRole, setFetchedRole] = useState<string>("");
+  const resolvedRole = userRole || fetchedRole || "VIEWER";
   const { user, logout } = useCurrentUser();
 
   useEffect(() => {
+    if (userRole || !workspaceId) return;
     let isMounted = true;
-    if (isShareModalOpen && workspaceId) {
-      fetch(`/api/workspaces/${workspaceId}`)
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data) => {
-          if (isMounted && data?.workspace?.members) {
-            setMembers(data.workspace.members);
-          }
-        })
-        .catch(() => {});
-    }
+    fetch(`/api/workspaces/${workspaceId}`, { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (isMounted && data?.workspace?.userRole) {
+          setFetchedRole(data.workspace.userRole);
+        }
+      })
+      .catch(() => {});
+
     return () => {
       isMounted = false;
     };
-  }, [isShareModalOpen, workspaceId]);
+  }, [workspaceId, userRole]);
 
   const userInitials = user?.name
     ? user.name
@@ -64,16 +60,6 @@ export function AppShell({
         .slice(0, 2)
     : "ME";
 
-  const handleCopyLink = () => {
-    setCopiedLink(true);
-    addToast({
-      message: "Workspace link copied",
-      description: "Anyone with access can view this page.",
-      variant: "success",
-    });
-    setTimeout(() => setCopiedLink(false), 2000);
-  };
-
   return (
     <div className="flex h-screen w-full overflow-hidden bg-white text-[#37352f]">
       {/* Sidebar for desktop & mobile drawer */}
@@ -82,6 +68,7 @@ export function AppShell({
           workspaceId={workspaceId}
           isOpen={isMobileSidebarOpen}
           onClose={() => setIsMobileSidebarOpen(false)}
+          userRole={resolvedRole}
         />
       )}
 
@@ -200,118 +187,14 @@ export function AppShell({
         />
       )}
 
-      {/* Share & Permissions Dialog (02_UI_DESIGN_WORKFLOW.md Section 3.G) */}
-      <Dialog
+      {/* Share & Permissions Dialog */}
+      <ShareDialog
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
-        title="Share & Permissions"
-        description="Manage workspace members and collaborative access levels."
-        footer={
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setIsShareModalOpen(false)}
-          >
-            Done
-          </Button>
-        }
-      >
-        <div className="space-y-4">
-          {/* Quick link copy */}
-          <div className="flex items-center gap-2 p-2 bg-[#fbfbfa] border border-[#e9e9e7] rounded-lg">
-            <span className="text-xs text-neutral-600 truncate flex-1 font-mono">
-              http://localhost:3000/workspace/{workspaceId}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleCopyLink}
-              className="shrink-0"
-            >
-              {copiedLink ? (
-                <>
-                  <Check className="w-3 h-3 text-emerald-600 mr-1" />
-                  <span>Copied</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3 h-3 mr-1" />
-                  <span>Copy Link</span>
-                </>
-              )}
-            </Button>
-          </div>
-
-          {/* Members & Roles List */}
-          <div className="space-y-2">
-            <div className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">
-              Workspace Members ({members.length > 0 ? members.length : 1})
-            </div>
-
-            <div className="divide-y divide-[#e9e9e7] border border-[#e9e9e7] rounded-lg overflow-hidden max-h-56 overflow-y-auto">
-              {members.length > 0 ? (
-                members.map((member) => {
-                  const isCurrent = user?.id === member.userId;
-                  const initials = member.name
-                    ? member.name
-                        .split(" ")
-                        .map((n) => n[0])
-                        .join("")
-                        .toUpperCase()
-                        .slice(0, 2)
-                    : "M";
-                  return (
-                    <div key={member.id} className="p-2.5 bg-white flex items-center justify-between">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-semibold shrink-0">
-                          {initials}
-                        </div>
-                        <div className="min-w-0">
-                          <span className="text-xs font-medium text-[#37352f] block truncate">
-                            {member.name} {isCurrent && "(You)"}
-                          </span>
-                          <span className="text-[11px] text-neutral-400 block truncate">
-                            {member.email}
-                          </span>
-                        </div>
-                      </div>
-                      <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-blue-50 text-[#2383e2] border border-blue-200 shrink-0">
-                        {member.role}
-                      </span>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="p-2.5 bg-white flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-semibold">
-                      {userInitials}
-                    </div>
-                    <div>
-                      <span className="text-xs font-medium text-[#37352f] block">
-                        {user?.name || "Intern Engineer"} (You)
-                      </span>
-                      <span className="text-[11px] text-neutral-400">
-                        {user?.email || "owner@workspace.dev"}
-                      </span>
-                    </div>
-                  </div>
-                  <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-blue-50 text-[#2383e2] border border-blue-200">
-                    Owner
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="p-2.5 rounded-lg bg-neutral-50 border border-neutral-200/70 flex items-start gap-2 text-xs text-neutral-500">
-            <Shield className="w-4 h-4 text-neutral-400 shrink-0 mt-0.5" />
-            <p>
-              Role permissions (Owner, Editor, Commenter, Viewer) will be enforced server-side in <strong>Phase 9</strong> per the architectural blueprint.
-            </p>
-          </div>
-        </div>
-      </Dialog>
+        workspaceId={workspaceId}
+        currentUserRole={resolvedRole}
+        currentUserId={user?.id}
+      />
     </div>
   );
 }

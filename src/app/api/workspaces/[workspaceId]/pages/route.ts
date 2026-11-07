@@ -3,6 +3,7 @@ import { checkWorkspaceAccess } from "@/lib/auth/workspace-auth";
 import { createPageSchema, DEFAULT_PAGE_CONTENT } from "@/lib/validations/page";
 import { prisma } from "@/lib/prisma";
 import { Role } from "@prisma/client";
+import { workspaceEvents } from "@/lib/events/workspace-events";
 
 interface RouteParams {
   params: Promise<{
@@ -120,6 +121,19 @@ export async function POST(request: Request, { params }: RouteParams) {
         createdBy: {
           select: { id: true, name: true, email: true },
         },
+      },
+    });
+
+    // Broadcast real-time page creation event to all members of this workspace
+    workspaceEvents.emitWorkspaceEvent(workspaceId, {
+      type: "PAGE_CREATED",
+      page: {
+        id: page.id,
+        title: page.title,
+        parentPageId: page.parentPageId,
+        workspaceId: page.workspaceId,
+        createdAt: page.createdAt,
+        updatedAt: page.updatedAt,
       },
     });
 

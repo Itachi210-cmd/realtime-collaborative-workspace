@@ -23,6 +23,7 @@ interface WorkspaceSidebarProps {
   isOpen: boolean;
   onClose?: () => void;
   onWorkspaceChange?: (workspaceId: string) => void;
+  userRole?: string;
 }
 
 export function WorkspaceSidebar({
@@ -30,6 +31,7 @@ export function WorkspaceSidebar({
   isOpen,
   onClose,
   onWorkspaceChange,
+  userRole,
 }: WorkspaceSidebarProps) {
   const pathname = usePathname();
   const { user, logout } = useCurrentUser();
@@ -130,7 +132,7 @@ export function WorkspaceSidebar({
 
         {/* Page Tree Navigation */}
         <div className="flex-1 overflow-y-auto px-2 py-1 space-y-1">
-          <PageTree workspaceId={workspaceId} />
+          <PageTree workspaceId={workspaceId} userRole={userRole} />
         </div>
 
         {/* Footer Profile & Settings */}
