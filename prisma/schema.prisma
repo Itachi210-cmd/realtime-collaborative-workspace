@@ -14,16 +14,17 @@ enum Role {
 }
 
 model User {
-  id              String            @id @default(cuid())
-  name            String
-  email           String            @unique
-  passwordHash    String
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  ownedWorkspaces Workspace[]       @relation("WorkspaceOwner")
-  memberships     WorkspaceMember[]
-  createdPages    Page[]
-  comments        Comment[]
+  id               String            @id @default(cuid())
+  name             String
+  email            String            @unique
+  passwordHash     String
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  ownedWorkspaces  Workspace[]       @relation("WorkspaceOwner")
+  memberships      WorkspaceMember[]
+  createdPages     Page[]
+  comments         Comment[]
+  versionSnapshots VersionSnapshot[]
 
   @@map("users")
 }
@@ -58,20 +59,21 @@ model WorkspaceMember {
 }
 
 model Page {
-  id           String    @id @default(cuid())
-  workspaceId  String
-  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  parentPageId String?
-  parentPage   Page?     @relation("PageHierarchy", fields: [parentPageId], references: [id], onDelete: Cascade)
-  childPages   Page[]    @relation("PageHierarchy")
-  title         String
-  content       Json?
-  documentState DocumentState?
-  comments      Comment[]
-  createdById   String
-  createdBy     User           @relation(fields: [createdById], references: [id], onDelete: Cascade)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  id               String            @id @default(cuid())
+  workspaceId      String
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  parentPageId     String?
+  parentPage       Page?             @relation("PageHierarchy", fields: [parentPageId], references: [id], onDelete: Cascade)
+  childPages       Page[]            @relation("PageHierarchy")
+  title            String
+  content          Json?
+  documentState    DocumentState?
+  comments         Comment[]
+  versionSnapshots VersionSnapshot[]
+  createdById      String
+  createdBy        User              @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 
   @@index([workspaceId])
   @@index([parentPageId])
@@ -106,4 +108,24 @@ model Comment {
   @@index([pageId])
   @@index([authorId])
   @@map("comments")
+}
+
+model VersionSnapshot {
+  id          String   @id @default(cuid())
+  pageId      String
+  page        Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  createdById String?
+  createdBy   User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  label       String?
+  description String?
+  yjsState    Bytes
+  content     Json?
+  wordCount   Int?
+  isAutomatic Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([pageId])
+  @@index([createdById])
+  @@index([pageId, createdAt(sort: Desc)])
+  @@map("version_snapshots")
 }

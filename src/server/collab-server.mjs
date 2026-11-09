@@ -11,6 +11,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import * as Y from 'yjs';
 import * as syncProtocol from 'y-protocols/sync';
@@ -26,7 +27,12 @@ import {
   closePersistence,
   sanitizeAwarenessUpdate,
   hasPendingSave,
+  getPrismaClient,
 } from './collab-persistence.mjs';
+import {
+  createRecoverySnapshot,
+  replaceDocXmlFragment,
+} from './version-snapshot-service.mjs';
 
 // Protocol Message Constants
 const MESSAGE_SYNC = 0;
@@ -38,11 +44,34 @@ const MESSAGE_QUERY_AWARENESS = 3;
 const COLLAB_TOKEN_ISSUER = 'collab-workspace-auth';
 const COLLAB_TOKEN_AUDIENCE = 'collab-workspace-yjs';
 
+// Internal RPC Secret Constraint (strictly 64 hex characters / 32 random bytes)
+export const INTERNAL_RPC_SECRET_REGEX = /^[0-9a-fA-F]{64}$/;
+
+/**
+ * Validates the internal RPC secret for presence and minimum cryptographic entropy.
+ * Requires exactly 64 hexadecimal characters (32 random bytes).
+ *
+ * @param {string} secret
+ * @throws {Error} If secret is missing, empty, or invalid format
+ */
+export function validateInternalRpcSecret(secret) {
+  if (!secret || typeof secret !== 'string') {
+    throw new Error(
+      '[CollabServer] Fatal startup error: INTERNAL_RPC_SECRET is required and cannot be empty.'
+    );
+  }
+  if (!INTERNAL_RPC_SECRET_REGEX.test(secret)) {
+    throw new Error(
+      '[CollabServer] Fatal startup error: INTERNAL_RPC_SECRET must be exactly 64 hexadecimal characters (32 cryptographically random bytes).'
+    );
+  }
+  return true;
+}
+
 /**
  * Loads environment variables from .env.local or .env if not already set.
  */
 function loadEnvIfPresent() {
-  if (process.env.AUTH_SECRET) return;
 
   const envFiles = [
     path.resolve(process.cwd(), '.env.local'),
@@ -167,12 +196,22 @@ export function createCollabServer(options = {}) {
     : (process.env.COLLAB_ALLOWED_ORIGINS || defaultAllowedOrigins.join(','));
   const allowedOrigins = [...new Set(rawOrigins.split(',').map((o) => o.trim()).filter(Boolean))];
 
+  const internalRpcSecret =
+    'internalRpcSecret' in options
+      ? options.internalRpcSecret
+      : process.env.INTERNAL_RPC_SECRET;
+  validateInternalRpcSecret(internalRpcSecret);
+  const allowExternalRpc = options.allowExternalRpc ?? false;
+
   const loadState = options.loadDocumentState || loadDocumentState;
 
   // In-memory room storage: Map<pageId, CollabRoom>
   const rooms = new Map();
+  globalThis.__collabRooms = rooms;
   // In-flight room hydration deduplication: Map<pageId, Promise<CollabRoom>>
   const roomHydrationPromises = new Map();
+  // Per-page restore mutex to serialize concurrent restore operations
+  const restoreLocks = new Map();
   let isShuttingDown = false;
 
   /**
@@ -339,24 +378,370 @@ export function createCollabServer(options = {}) {
     return await hydrationPromise;
   }
 
-  // HTTP Server (Health check + Upgrade routing)
-  const server = http.createServer((req, res) => {
-    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-    if (url.pathname === '/health' || url.pathname === '/healthz') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          status: 'ok',
-          uptime: process.uptime(),
-          roomsCount: rooms.size,
-          rooms: Array.from(rooms.keys()),
-        })
-      );
-      return;
-    }
+  // HTTP Server (Health check + Internal RPC + Upgrade routing)
+  const server = http.createServer(async (req, res) => {
+    try {
+      const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
-    res.writeHead(404, { 'Content-Type': 'text/plain' });
-    res.end('Not Found');
+      // 1. Health check endpoint
+      if (url.pathname === '/health' || url.pathname === '/healthz') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            status: 'ok',
+            uptime: process.uptime(),
+            roomsCount: rooms.size,
+            rooms: Array.from(rooms.keys()),
+          })
+        );
+        return;
+      }
+
+      // 2. Internal RPC endpoints: /internal/*
+      if (url.pathname.startsWith('/internal/')) {
+        // Match: POST /internal/rooms/:pageId/flush
+        const flushMatch = url.pathname.match(/^\/internal\/rooms\/([^/]+)\/flush$/);
+        if (flushMatch) {
+          // Verify request originated from loopback interface
+          const remoteAddress = req.socket?.remoteAddress;
+          const isLoopback =
+            remoteAddress === '127.0.0.1' ||
+            remoteAddress === '::1' ||
+            remoteAddress === '::ffff:127.0.0.1' ||
+            remoteAddress === 'localhost';
+
+          if (!isLoopback && !allowExternalRpc) {
+            console.warn(`[CollabServer] Rejected non-loopback internal RPC attempt from: ${remoteAddress}`);
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Forbidden: Internal RPC restricted to loopback address' }));
+            return;
+          }
+
+          // Authenticate with shared internal RPC secret using constant-time comparison
+          const authHeader = req.headers['authorization'] || '';
+          const [scheme, token] = authHeader.split(' ');
+
+          let isAuthValid = false;
+          if (scheme === 'Bearer' && token && typeof token === 'string') {
+            const expectedBuf = Buffer.from(internalRpcSecret, 'utf8');
+            const actualBuf = Buffer.from(token, 'utf8');
+            if (expectedBuf.length === actualBuf.length) {
+              isAuthValid = crypto.timingSafeEqual(expectedBuf, actualBuf);
+            }
+          }
+
+          if (!isAuthValid) {
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Unauthorized: Invalid internal RPC secret' }));
+            return;
+          }
+
+          // Validate HTTP method
+          if (req.method !== 'POST') {
+            res.writeHead(405, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Method Not Allowed: Expected POST' }));
+            return;
+          }
+
+          // Extract and validate pageId
+          const pageId = decodeURIComponent(flushMatch[1]).trim();
+          if (!pageId || pageId.length > 255) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Invalid pageId parameter' }));
+            return;
+          }
+
+          // Await room hydration if in progress
+          let room = rooms.get(pageId);
+          if (!room && roomHydrationPromises.has(pageId)) {
+            try {
+              room = await roomHydrationPromises.get(pageId);
+            } catch (err) {
+              console.error(`[CollabServer] Room hydration failed during internal flush for "${pageId}":`, err.message);
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({
+                success: false,
+                active: true,
+                flushed: false,
+                pageId,
+                error: 'Room hydration failed',
+                detail: err.message,
+              }));
+              return;
+            }
+          }
+
+          // If no active in-memory room exists
+          if (!room || room.isDestroyed || !room.doc) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              success: true,
+              active: false,
+              flushed: false,
+              pageId,
+              message: 'No active in-memory room found for document',
+            }));
+            return;
+          }
+
+          // Active room exists: flush its actual Y.Doc to PostgreSQL persistence
+          try {
+            const saveResult = await flushSave(pageId, room.doc, { prisma: options.prisma });
+            room.lastSavedVersion = saveResult.stateVersion;
+            room.hasUnsavedChanges = false;
+
+            broadcastSaveStatus(room, {
+              type: 'save_status',
+              status: 'saved',
+              pageId,
+              stateVersion: saveResult.stateVersion,
+              savedAt: new Date().toISOString(),
+            });
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              success: true,
+              active: true,
+              flushed: true,
+              pageId,
+              stateVersion: saveResult.stateVersion,
+            }));
+          } catch (err) {
+            console.error(`[CollabServer] Error during internal flush for "${pageId}":`, err.message);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              success: false,
+              active: true,
+              flushed: false,
+              pageId,
+              error: 'Failed to flush active room to persistence',
+              detail: err.message,
+            }));
+          }
+          return;
+        }
+
+        // Match: POST /internal/rooms/:pageId/restore
+        const restoreMatch = url.pathname.match(/^\/internal\/rooms\/([^/]+)\/restore$/);
+        if (restoreMatch) {
+          // 1. Verify loopback origin
+          const remoteAddress = req.socket?.remoteAddress;
+          const isLoopback =
+            remoteAddress === '127.0.0.1' ||
+            remoteAddress === '::1' ||
+            remoteAddress === '::ffff:127.0.0.1' ||
+            remoteAddress === 'localhost';
+
+          if (!isLoopback && !allowExternalRpc) {
+            console.warn(`[CollabServer] Rejected non-loopback internal RPC restore attempt from: ${remoteAddress}`);
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Forbidden: Internal RPC restricted to loopback address' }));
+            return;
+          }
+
+          // 2. Authenticate with shared internal RPC secret using constant-time comparison
+          const authHeader = req.headers['authorization'] || '';
+          const [scheme, token] = authHeader.split(' ');
+
+          let isAuthValid = false;
+          if (scheme === 'Bearer' && token && typeof token === 'string') {
+            const expectedBuf = Buffer.from(internalRpcSecret, 'utf8');
+            const actualBuf = Buffer.from(token, 'utf8');
+            if (expectedBuf.length === actualBuf.length) {
+              isAuthValid = crypto.timingSafeEqual(expectedBuf, actualBuf);
+            }
+          }
+
+          if (!isAuthValid) {
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Unauthorized: Invalid internal RPC secret' }));
+            return;
+          }
+
+          // 3. Validate HTTP method
+          if (req.method !== 'POST') {
+            res.writeHead(405, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Method Not Allowed: Expected POST' }));
+            return;
+          }
+
+          // 4. Extract and validate pageId
+          const pageId = decodeURIComponent(restoreMatch[1]).trim();
+          if (!pageId || pageId.length > 255) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Invalid pageId parameter' }));
+            return;
+          }
+
+          // 5. Parse JSON request body
+          let bodyText = '';
+          try {
+            bodyText = await new Promise((resolve, reject) => {
+              let accumulated = '';
+              req.on('data', (chunk) => {
+                accumulated += chunk;
+                if (accumulated.length > 10 * 1024 * 1024) {
+                  req.destroy();
+                  reject(new Error('Payload Too Large'));
+                }
+              });
+              req.on('end', () => resolve(accumulated));
+              req.on('error', reject);
+            });
+          } catch (err) {
+            res.writeHead(413, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: err.message }));
+            return;
+          }
+
+          let body = {};
+          try {
+            body = bodyText ? JSON.parse(bodyText) : {};
+          } catch {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Invalid JSON request body' }));
+            return;
+          }
+
+          const versionId = body.versionId;
+          if (!versionId || typeof versionId !== 'string') {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Missing or invalid versionId parameter' }));
+            return;
+          }
+
+          const userId = body.userId || null;
+          const prisma = getPrismaClient(options.prisma);
+
+          // 6. Acquire per-page restore mutex to serialize concurrent restores
+          let unlock;
+          const lockPromise = new Promise((resolve) => {
+            unlock = resolve;
+          });
+          const previousLock = restoreLocks.get(pageId) || Promise.resolve();
+          restoreLocks.set(pageId, lockPromise);
+
+          try {
+            await previousLock;
+
+            // 7. Await room hydration if in progress, or hydrate room
+            let room = rooms.get(pageId);
+            if (!room && roomHydrationPromises.has(pageId)) {
+              try {
+                room = await roomHydrationPromises.get(pageId);
+              } catch (err) {
+                console.error(`[CollabServer] Room hydration failed during restore for "${pageId}":`, err.message);
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                  success: false,
+                  error: 'Room hydration failed',
+                  detail: err.message,
+                }));
+                return;
+              }
+            }
+
+            if (!room || room.isDestroyed || !room.doc) {
+              room = await getOrCreateRoom(pageId);
+            }
+
+            // 8. Flush pending edits on the active room before modifying anything
+            if (room.hasUnsavedChanges || hasPendingSave(pageId)) {
+              await flushSave(pageId, room.doc, { prisma: options.prisma });
+              room.hasUnsavedChanges = false;
+            }
+
+            // 9. Create an automatic recovery snapshot of the latest current state
+            const recoverySnapshot = await createRecoverySnapshot(pageId, {
+              userId,
+              doc: room.doc,
+              triggerAction: 'restore',
+              prisma: options.prisma,
+            });
+
+            // 10. Load and validate the requested historical snapshot from PostgreSQL
+            const historicalSnapshot = await prisma.versionSnapshot.findUnique({
+              where: { id: versionId },
+              include: {
+                createdBy: {
+                  select: { id: true, name: true, email: true },
+                },
+              },
+            });
+
+            if (!historicalSnapshot || historicalSnapshot.pageId !== pageId) {
+              res.writeHead(404, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Historical version snapshot not found for document' }));
+              return;
+            }
+
+            if (!historicalSnapshot.yjsState || historicalSnapshot.yjsState.length === 0) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Historical snapshot does not contain binary Yjs state' }));
+              return;
+            }
+
+            // 11. Replace active Yjs document content in verified 'restore' transaction
+            const tempDoc = new Y.Doc();
+            try {
+              Y.applyUpdate(tempDoc, new Uint8Array(historicalSnapshot.yjsState));
+              replaceDocXmlFragment(room.doc, tempDoc);
+            } finally {
+              tempDoc.destroy();
+            }
+
+            // 12. Immediately persist restored state to PostgreSQL DocumentState and Page.content
+            const saveResult = await flushSave(pageId, room.doc, { prisma: options.prisma });
+            room.lastSavedVersion = saveResult.stateVersion;
+            room.hasUnsavedChanges = false;
+
+            broadcastSaveStatus(room, {
+              type: 'save_status',
+              status: 'saved',
+              pageId,
+              stateVersion: saveResult.stateVersion,
+              savedAt: new Date().toISOString(),
+            });
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              success: true,
+              pageId,
+              restoredVersionId: historicalSnapshot.id,
+              recoverySnapshotId: recoverySnapshot.id,
+              stateVersion: saveResult.stateVersion,
+            }));
+          } catch (err) {
+            console.error(`[CollabServer] Error during restore for "${pageId}":`, err.message);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              success: false,
+              error: 'Failed to restore document',
+              detail: err.message,
+            }));
+          } finally {
+            unlock();
+            if (restoreLocks.get(pageId) === lockPromise) {
+              restoreLocks.delete(pageId);
+            }
+          }
+          return;
+        }
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Internal RPC endpoint not found' }));
+        return;
+      }
+
+      // Default fallback
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not Found');
+    } catch (err) {
+      console.error('[CollabServer] Unhandled HTTP error:', err);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Internal Server Error' }));
+      }
+    }
   });
 
   // WebSocket Server (noServer mode to handle custom upgrade authorization)
@@ -1000,6 +1385,9 @@ export function createCollabServer(options = {}) {
       } catch {}
     }
     rooms.clear();
+    if (globalThis.__collabRooms === rooms) {
+      delete globalThis.__collabRooms;
+    }
 
     // 5. Close WebSocket server and HTTP server
     await new Promise((resolve) => {

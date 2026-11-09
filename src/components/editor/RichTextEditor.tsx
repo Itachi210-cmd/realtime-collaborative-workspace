@@ -8,7 +8,7 @@ import Collaboration from "@tiptap/extension-collaboration";
 import { CollaborationCursor } from "@/lib/collab/collaboration-cursor";
 import * as Y from "yjs";
 import * as awarenessProtocol from "y-protocols/awareness";
-import { Eye, MessageSquare } from "lucide-react";
+import { Eye, MessageSquare, Clock, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EditorToolbar } from "./EditorToolbar";
 import { DocumentTitle } from "./DocumentTitle";
@@ -16,7 +16,17 @@ import { CollabStatusBadge } from "./CollabStatusBadge";
 import { CollaboratorAvatars } from "./CollaboratorAvatars";
 import { SaveStatusBadge, type SaveStatus } from "./SaveStatusBadge";
 import { CommentPanel } from "@/components/comments/CommentPanel";
+import { VersionHistoryPanel } from "@/components/history/VersionHistoryPanel";
+import { RestoreConfirmationDialog } from "@/components/history/RestoreConfirmationDialog";
+import { ReadOnlyPreview } from "@/components/history/ReadOnlyPreview";
+import { useToast } from "@/components/ui/Toast";
 import { getPageComments } from "@/lib/api/comments";
+import {
+  VersionSummaryData,
+  VersionDetailData,
+  getPageVersion,
+  restorePageVersion,
+} from "@/lib/api/history";
 import { getCollaboratorColor } from "@/lib/collab/collab-colors";
 import {
   createCollabWebsocketProvider,
@@ -69,6 +79,63 @@ export function RichTextEditor({
   // Comments panel state
   const [isCommentsOpen, setIsCommentsOpen] = useState<boolean>(false);
   const [commentsCount, setCommentsCount] = useState<number>(0);
+
+  // Version history state
+  const { addToast } = useToast();
+  const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
+  const [previewVersion, setPreviewVersion] = useState<VersionDetailData | null>(null);
+  const [restoreTargetSnapshot, setRestoreTargetSnapshot] = useState<VersionSummaryData | null>(null);
+  const [isRestoring, setIsRestoring] = useState<boolean>(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [historyRefreshKey, setHistoryRefreshKey] = useState<number>(0);
+
+  // Version preview selection handler
+  const handleSelectVersionForPreview = useCallback(
+    async (snapshot: VersionSummaryData | null) => {
+      if (!snapshot) {
+        setPreviewVersion(null);
+        return;
+      }
+      try {
+        const detail = await getPageVersion(workspaceId, pageId, snapshot.id);
+        setPreviewVersion(detail);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Failed to load snapshot preview";
+        addToast({
+          message: "Preview Error",
+          description: msg,
+          variant: "error",
+        });
+        setPreviewVersion(null);
+      }
+    },
+    [workspaceId, pageId, addToast]
+  );
+
+  // Snapshot restore confirmation handler
+  const handleConfirmRestore = useCallback(async () => {
+    if (!restoreTargetSnapshot) return;
+    setIsRestoring(true);
+    setRestoreError(null);
+    try {
+      await restorePageVersion(workspaceId, pageId, restoreTargetSnapshot.id);
+      addToast({
+        message: "Document Restored",
+        description: `Successfully restored to version from ${new Date(
+          restoreTargetSnapshot.createdAt
+        ).toLocaleDateString()}.`,
+        variant: "success",
+      });
+      setRestoreTargetSnapshot(null);
+      setPreviewVersion(null);
+      setHistoryRefreshKey((prev) => prev + 1);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to restore document version.";
+      setRestoreError(msg);
+    } finally {
+      setIsRestoring(false);
+    }
+  }, [workspaceId, pageId, restoreTargetSnapshot, addToast]);
 
   // Monotonic tracking of local user edits to prevent stale acknowledgements
   const localEditCountRef = useRef<number>(0);
@@ -339,7 +406,13 @@ export function RichTextEditor({
                 {/* Comments Toggle Button */}
                 <button
                   type="button"
-                  onClick={() => setIsCommentsOpen((prev) => !prev)}
+                  onClick={() =>
+                    setIsCommentsOpen((prev) => {
+                      const next = !prev;
+                      if (next) setIsHistoryOpen(false);
+                      return next;
+                    })
+                  }
                   className={cn(
                     "flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors",
                     isCommentsOpen
@@ -356,6 +429,29 @@ export function RichTextEditor({
                       {commentsCount}
                     </span>
                   )}
+                </button>
+
+                {/* Version History Toggle Button */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setIsHistoryOpen((prev) => {
+                      const next = !prev;
+                      if (next) setIsCommentsOpen(false);
+                      return next;
+                    })
+                  }
+                  className={cn(
+                    "flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors",
+                    isHistoryOpen
+                      ? "bg-neutral-100 text-neutral-900 border-neutral-300 shadow-inner"
+                      : "bg-white text-neutral-600 border-neutral-200 hover:bg-neutral-50 hover:text-neutral-900"
+                  )}
+                  title={isHistoryOpen ? "Close version history" : "Open version history"}
+                  aria-label={isHistoryOpen ? "Close version history" : "Open version history"}
+                >
+                  <Clock className="w-3.5 h-3.5 text-neutral-600" />
+                  <span>History</span>
                 </button>
 
                 {/* Document Persistence & Sync Status Badge */}
@@ -381,10 +477,56 @@ export function RichTextEditor({
             </div>
           </div>
 
-          {/* TipTap Editor Surface */}
-          <div className="min-h-[420px] focus-within:ring-0 editor-surface">
-            <EditorContent editor={editor} />
-          </div>
+          {/* Version Preview Alert Banner */}
+          {previewVersion && (
+            <div className="p-3 rounded-lg bg-amber-50 border border-amber-200/90 text-xs flex flex-wrap items-center justify-between gap-2 shadow-2xs">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-semibold text-amber-900">
+                  Viewing Historical Version:
+                </span>
+                <span className="text-amber-800">
+                  {previewVersion.label || "Saved Snapshot"} (
+                  {new Date(previewVersion.createdAt).toLocaleDateString()} at{" "}
+                  {new Date(previewVersion.createdAt).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                  )
+                </span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-200/60 text-amber-900 font-medium">
+                  Read-Only Preview
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPreviewVersion(null)}
+                  className="px-2.5 py-1 rounded bg-white border border-amber-300 text-amber-900 hover:bg-amber-100/50 text-xs font-medium transition-colors"
+                >
+                  Exit Preview
+                </button>
+                {(currentUser?.role === "OWNER" || currentUser?.role === "EDITOR") && (
+                  <button
+                    type="button"
+                    onClick={() => setRestoreTargetSnapshot(previewVersion)}
+                    className="px-2.5 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 text-xs font-medium flex items-center gap-1 shadow-2xs transition-colors"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Restore This Version</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TipTap Editor Surface or Read-Only Preview */}
+          {previewVersion ? (
+            <ReadOnlyPreview content={previewVersion.content} />
+          ) : (
+            <div className="min-h-[420px] focus-within:ring-0 editor-surface">
+              <EditorContent editor={editor} />
+            </div>
+          )}
         </div>
 
         {/* Side Drawer for Comments */}
@@ -402,7 +544,43 @@ export function RichTextEditor({
             />
           </aside>
         )}
+
+        {/* Side Drawer for Version History */}
+        {isHistoryOpen && (
+          <aside className="fixed lg:sticky top-0 lg:top-12 right-0 h-screen lg:h-[calc(100vh-4rem)] z-30 shadow-lg lg:shadow-none bg-white">
+            <VersionHistoryPanel
+              key={`history-${pageId}`}
+              workspaceId={workspaceId}
+              pageId={pageId}
+              isOpen={isHistoryOpen}
+              onClose={() => {
+                setIsHistoryOpen(false);
+                setPreviewVersion(null);
+              }}
+              currentUserRole={currentUser?.role}
+              selectedVersionId={previewVersion?.id || null}
+              onSelectVersion={handleSelectVersionForPreview}
+              onRequestRestore={(snapshot) => setRestoreTargetSnapshot(snapshot)}
+              refreshTrigger={historyRefreshKey}
+            />
+          </aside>
+        )}
       </div>
+
+      {/* Restore Confirmation Dialog */}
+      <RestoreConfirmationDialog
+        isOpen={Boolean(restoreTargetSnapshot)}
+        snapshot={restoreTargetSnapshot}
+        isRestoring={isRestoring}
+        error={restoreError}
+        onConfirm={handleConfirmRestore}
+        onCancel={() => {
+          if (!isRestoring) {
+            setRestoreTargetSnapshot(null);
+            setRestoreError(null);
+          }
+        }}
+      />
 
       {/* Notion Editor Styles Scoped to TipTap */}
       <style jsx global>{`
