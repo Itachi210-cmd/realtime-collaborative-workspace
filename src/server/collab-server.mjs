@@ -33,6 +33,7 @@ import {
   createRecoverySnapshot,
   replaceDocXmlFragment,
 } from './version-snapshot-service.mjs';
+import { createCollabRedis } from './collab-redis.mjs';
 
 // Protocol Message Constants
 const MESSAGE_SYNC = 0;
@@ -203,6 +204,16 @@ export function createCollabServer(options = {}) {
   validateInternalRpcSecret(internalRpcSecret);
   const allowExternalRpc = options.allowExternalRpc ?? false;
 
+  const instanceId = options.instanceId || `collab-${crypto.randomUUID()}`;
+  const enableRedis = options.enableRedis !== false && process.env.REDIS_ENABLED !== 'false';
+  const redisUrl = options.redisUrl || process.env.REDIS_URL || 'redis://localhost:6379';
+  const collabRedis = options.collabRedis || createCollabRedis({
+    redisUrl,
+    instanceId,
+    enabled: enableRedis,
+    channelPrefix: options.redisChannelPrefix,
+  });
+
   const loadState = options.loadDocumentState || loadDocumentState;
 
   // In-memory room storage: Map<pageId, CollabRoom>
@@ -263,6 +274,7 @@ export function createCollabServer(options = {}) {
       isDestroyed: false,
       lastSavedVersion: 0,
       hasUnsavedChanges: false,
+      redisUnsubscribe: null,
     };
 
     hydrationPromise = (async () => {
@@ -274,6 +286,46 @@ export function createCollabServer(options = {}) {
         console.log(
           `[CollabServer] Room "${pageId}" hydrated successfully (source: ${loadResult.source}, version: ${loadResult.version})`
         );
+
+        // Subscribe to cross-instance Redis updates & awareness for this room
+        if (collabRedis && collabRedis.enabled && !room.redisUnsubscribe) {
+          const handleRemoteRedisUpdate = (updateBytes, payload) => {
+            if (room.isDestroyed) return;
+            if (payload && payload.type === 'yjs_persisted') {
+              if (payload.stateVersion && payload.stateVersion >= room.lastSavedVersion) {
+                room.lastSavedVersion = payload.stateVersion;
+                room.hasRemoteEdits = false;
+              }
+              return;
+            }
+            if (!room.doc || !updateBytes) return;
+            try {
+              room.hasRemoteEdits = true;
+              // Apply remote update to local Y.Doc with origin 'redis'
+              Y.applyUpdate(room.doc, updateBytes, 'redis');
+            } catch (err) {
+              console.error(`[CollabServer] Error applying remote Redis update in room "${pageId}":`, err.message);
+            }
+          };
+
+          const handleRemoteRedisAwareness = (awarenessBytes) => {
+            if (room.isDestroyed || !room.awareness || !awarenessBytes) return;
+            try {
+              // Apply remote awareness to local room with origin 'redis'
+              awarenessProtocol.applyAwarenessUpdate(room.awareness, awarenessBytes, 'redis');
+            } catch (err) {
+              console.error(`[CollabServer] Error applying remote Redis awareness in room "${pageId}":`, err.message);
+            }
+          };
+
+          collabRedis.subscribeRoom(pageId, handleRemoteRedisUpdate);
+          collabRedis.subscribeAwareness(pageId, handleRemoteRedisAwareness);
+
+          room.redisUnsubscribe = () => {
+            collabRedis.unsubscribeRoom(pageId, handleRemoteRedisUpdate);
+            collabRedis.unsubscribeAwareness(pageId, handleRemoteRedisAwareness);
+          };
+        }
 
         // Attach doc update listener AFTER hydration completes so initial load doesn't trigger save
         doc.on('update', (update, origin) => {
@@ -296,8 +348,17 @@ export function createCollabServer(options = {}) {
             }
           }
 
-          // Trigger debounced persistence for non-persistence updates
-          if (origin !== 'persistence' && !room.isDestroyed) {
+          // Publish to Redis if origin is not 'redis' and not 'persistence'
+          if (origin !== 'redis' && origin !== 'persistence' && collabRedis && collabRedis.enabled) {
+            collabRedis.publishUpdate(pageId, update, {
+              origin: typeof origin === 'string' ? origin : 'client',
+            }).catch((err) => {
+              console.error(`[CollabServer] Failed publishing update to Redis for room "${pageId}":`, err.message);
+            });
+          }
+
+          // Trigger debounced persistence for non-persistence and non-redis updates
+          if (origin !== 'persistence' && origin !== 'redis' && !room.isDestroyed) {
             room.hasUnsavedChanges = true;
             broadcastSaveStatus(room, {
               type: 'save_status',
@@ -305,7 +366,7 @@ export function createCollabServer(options = {}) {
               pageId,
             });
 
-            scheduleSave(pageId, doc)
+            scheduleSave(pageId, doc, { collabRedis, prisma: options.prisma })
               .then((saveResult) => {
                 room.lastSavedVersion = saveResult.stateVersion;
                 // Only mark saved if no further edits were scheduled during the save
@@ -332,15 +393,13 @@ export function createCollabServer(options = {}) {
           }
         });
 
-        // Broadcast awareness updates to other authenticated room clients
+        // Broadcast awareness updates to other authenticated room clients and Redis
         awareness.on('update', ({ added, updated, removed }, origin) => {
           const changedClients = added.concat(updated).concat(removed);
           const encoder = encoding.createEncoder();
           encoding.writeVarUint(encoder, MESSAGE_AWARENESS);
-          encoding.writeVarUint8Array(
-            encoder,
-            awarenessProtocol.encodeAwarenessUpdate(awareness, changedClients)
-          );
+          const awarenessBytes = awarenessProtocol.encodeAwarenessUpdate(awareness, changedClients);
+          encoding.writeVarUint8Array(encoder, awarenessBytes);
           const msg = encoding.toUint8Array(encoder);
 
           for (const client of room.clients) {
@@ -355,6 +414,13 @@ export function createCollabServer(options = {}) {
                 console.error(`[CollabServer] Failed broadcasting awareness update in room "${pageId}":`, err);
               }
             }
+          }
+
+          // Broadcast awareness to other server instances via Redis (if origin is not 'redis')
+          if (origin !== 'redis' && collabRedis && collabRedis.enabled) {
+            collabRedis.publishAwareness(pageId, awarenessBytes).catch((err) => {
+              console.error(`[CollabServer] Failed publishing awareness to Redis for room "${pageId}":`, err.message);
+            });
           }
         });
 
@@ -389,9 +455,14 @@ export function createCollabServer(options = {}) {
         res.end(
           JSON.stringify({
             status: 'ok',
+            instanceId,
             uptime: process.uptime(),
             roomsCount: rooms.size,
             rooms: Array.from(rooms.keys()),
+            redis: {
+              enabled: Boolean(collabRedis && collabRedis.enabled),
+              status: collabRedis ? collabRedis.status : 'disabled',
+            },
           })
         );
         return;
@@ -486,7 +557,7 @@ export function createCollabServer(options = {}) {
 
           // Active room exists: flush its actual Y.Doc to PostgreSQL persistence
           try {
-            const saveResult = await flushSave(pageId, room.doc, { prisma: options.prisma });
+            const saveResult = await flushSave(pageId, room.doc, { prisma: options.prisma, collabRedis });
             room.lastSavedVersion = saveResult.stateVersion;
             room.hasUnsavedChanges = false;
 
@@ -613,7 +684,7 @@ export function createCollabServer(options = {}) {
           const userId = body.userId || null;
           const prisma = getPrismaClient(options.prisma);
 
-          // 6. Acquire per-page restore mutex to serialize concurrent restores
+          // 6. Acquire per-page local restore mutex to serialize concurrent restores in this process
           let unlock;
           const lockPromise = new Promise((resolve) => {
             unlock = resolve;
@@ -621,10 +692,23 @@ export function createCollabServer(options = {}) {
           const previousLock = restoreLocks.get(pageId) || Promise.resolve();
           restoreLocks.set(pageId, lockPromise);
 
+          let distRestoreLock = null;
           try {
             await previousLock;
 
-            // 7. Await room hydration if in progress, or hydrate room
+            // 7. Acquire cross-instance distributed restore lock
+            if (collabRedis && collabRedis.enabled) {
+              distRestoreLock = await collabRedis.acquireRestoreLock(pageId, 15000);
+              if (!distRestoreLock.acquired) {
+                res.writeHead(409, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                  error: 'Conflict: Document restoration is currently in progress on another server instance',
+                }));
+                return;
+              }
+            }
+
+            // 8. Await room hydration if in progress, or hydrate room
             let room = rooms.get(pageId);
             if (!room && roomHydrationPromises.has(pageId)) {
               try {
@@ -647,7 +731,7 @@ export function createCollabServer(options = {}) {
 
             // 8. Flush pending edits on the active room before modifying anything
             if (room.hasUnsavedChanges || hasPendingSave(pageId)) {
-              await flushSave(pageId, room.doc, { prisma: options.prisma });
+              await flushSave(pageId, room.doc, { prisma: options.prisma, collabRedis });
               room.hasUnsavedChanges = false;
             }
 
@@ -691,7 +775,7 @@ export function createCollabServer(options = {}) {
             }
 
             // 12. Immediately persist restored state to PostgreSQL DocumentState and Page.content
-            const saveResult = await flushSave(pageId, room.doc, { prisma: options.prisma });
+            const saveResult = await flushSave(pageId, room.doc, { prisma: options.prisma, collabRedis });
             room.lastSavedVersion = saveResult.stateVersion;
             room.hasUnsavedChanges = false;
 
@@ -720,6 +804,11 @@ export function createCollabServer(options = {}) {
               detail: err.message,
             }));
           } finally {
+            if (distRestoreLock && typeof distRestoreLock.release === 'function') {
+              try {
+                await distRestoreLock.release();
+              } catch {}
+            }
             unlock();
             if (restoreLocks.get(pageId) === lockPromise) {
               restoreLocks.delete(pageId);
@@ -1277,9 +1366,15 @@ export function createCollabServer(options = {}) {
         if (room.clients.size === 0) {
           console.log(`[CollabServer] Room cleanup timer expired. Flushing and destroying room "${pageId}".`);
           try {
-            if (room.hasUnsavedChanges || hasPendingSave(pageId)) {
-              await flushSave(pageId, room.doc);
+            if (room.hasUnsavedChanges || room.hasRemoteEdits || hasPendingSave(pageId)) {
+              await flushSave(pageId, room.doc, { prisma: options.prisma, collabRedis });
               console.log(`[CollabServer] Successfully flushed state for room "${pageId}" before disposal.`);
+            }
+            if (room.redisUnsubscribe) {
+              try {
+                room.redisUnsubscribe();
+              } catch {}
+              room.redisUnsubscribe = null;
             }
             room.isDestroyed = true;
             room.awareness.destroy();
@@ -1292,6 +1387,12 @@ export function createCollabServer(options = {}) {
               err.code === 'P2003' ||
               (err.message && (err.message.includes('Foreign key') || err.message.includes('foreign key')))
             ) {
+              if (room.redisUnsubscribe) {
+                try {
+                  room.redisUnsubscribe();
+                } catch {}
+                room.redisUnsubscribe = null;
+              }
               room.isDestroyed = true;
               room.awareness.destroy();
               room.doc.destroy();
@@ -1307,14 +1408,25 @@ export function createCollabServer(options = {}) {
   /**
    * Starts listening on the configured port and host.
    */
-  function start() {
+  async function start() {
+    if (collabRedis && collabRedis.enabled) {
+      try {
+        await collabRedis.connect();
+      } catch (err) {
+        console.error(`[CollabServer] Redis connection failed on startup for instance "${instanceId}":`, err.message);
+      }
+    }
+
     return new Promise((resolve, reject) => {
       const onListening = () => {
         const boundHost = host || 'dual-stack (0.0.0.0 / ::)';
-        console.log(`[CollabServer] Yjs WebSocket server listening on port ${port} (${boundHost})`);
+        console.log(`[CollabServer] Yjs WebSocket server listening on port ${port} (${boundHost}) [instance: ${instanceId}]`);
         console.log(`[CollabServer] Allowed Origins: ${allowedOrigins.join(', ')}`);
         console.log(`[CollabServer] Auth Timeout: ${authTimeoutMs}ms | Cleanup Grace: ${cleanupGraceMs}ms`);
-        resolve({ server, port, host });
+        if (collabRedis && collabRedis.enabled) {
+          console.log(`[CollabServer] Redis Pub/Sub enabled (status: ${collabRedis.status})`);
+        }
+        resolve({ server, port, host, instanceId });
       };
 
       if (host) {
@@ -1340,11 +1452,21 @@ export function createCollabServer(options = {}) {
       }
     }
 
-    // 2. Disconnect active clients gracefully
+    // 2. Disconnect active clients gracefully and remove awareness
     for (const room of rooms.values()) {
+      const allControlledClients = [];
       for (const client of room.clients) {
+        if (client.collabAwarenessClientIds && client.collabAwarenessClientIds.size > 0) {
+          allControlledClients.push(...client.collabAwarenessClientIds);
+          client.collabAwarenessClientIds.clear();
+        }
         try {
           client.close(1001, 'Server shutting down');
+        } catch {}
+      }
+      if (allControlledClients.length > 0 && !room.isDestroyed && room.awareness) {
+        try {
+          awarenessProtocol.removeAwarenessStates(room.awareness, allControlledClients, null);
         } catch {}
       }
     }
@@ -1354,7 +1476,7 @@ export function createCollabServer(options = {}) {
     for (const [pageId, room] of rooms.entries()) {
       if (room.hasUnsavedChanges || hasPendingSave(pageId)) {
         flushPromises.push(
-          flushSave(pageId, room.doc)
+          flushSave(pageId, room.doc, { prisma: options.prisma, collabRedis })
             .then((flushResult) => {
               if (flushResult) {
                 room.lastSavedVersion = flushResult.stateVersion;
@@ -1376,8 +1498,14 @@ export function createCollabServer(options = {}) {
       console.warn(`[CollabServer] ${failedFlushes.length} room(s) failed to flush during shutdown.`);
     }
 
-    // 4. Destroy room CRDTs
+    // 4. Destroy room CRDTs and unsubscribe from Redis
     for (const room of rooms.values()) {
+      if (room.redisUnsubscribe) {
+        try {
+          room.redisUnsubscribe();
+        } catch {}
+        room.redisUnsubscribe = null;
+      }
       try {
         room.isDestroyed = true;
         room.awareness.destroy();
@@ -1389,14 +1517,23 @@ export function createCollabServer(options = {}) {
       delete globalThis.__collabRooms;
     }
 
-    // 5. Close WebSocket server and HTTP server
+    // 5. Close Redis clients
+    if (collabRedis && collabRedis.enabled) {
+      try {
+        await collabRedis.close();
+      } catch (err) {
+        console.warn('[CollabServer] Error closing Redis client during shutdown:', err.message);
+      }
+    }
+
+    // 6. Close WebSocket server and HTTP server
     await new Promise((resolve) => {
       wss.close(() => {
         server.close(resolve);
       });
     });
 
-    // 6. Close persistence pool if requested
+    // 7. Close persistence pool if requested
     if (options.closePersistence === true) {
       await closePersistence();
     }
@@ -1409,6 +1546,8 @@ export function createCollabServer(options = {}) {
     rooms,
     port,
     host,
+    instanceId,
+    collabRedis,
     start,
     close,
   };

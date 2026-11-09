@@ -235,56 +235,80 @@ export async function saveDocumentState(pageId, doc, options = {}) {
 
 /**
  * Direct execution of atomic PostgreSQL upsert for DocumentState.
+ * Incorporates distributed locking and merges existing persisted state to prevent stale-state overwrites.
  */
 async function executeSaveDirect(pageId, doc, options = {}) {
   const prisma = getPrismaClient(options.prisma);
 
-  // Encode binary snapshot
-  const snapshotBytes = Y.encodeStateAsUpdate(doc);
-  const snapshotBuffer = Buffer.from(snapshotBytes);
-
-  // Atomic upsert into DocumentState
-  const documentState = await prisma.documentState.upsert({
-    where: { pageId },
-    create: {
-      pageId,
-      yjsState: snapshotBuffer,
-      stateVersion: 1,
-    },
-    update: {
-      yjsState: snapshotBuffer,
-      stateVersion: { increment: 1 },
-    },
-  });
-
-  // Dual-write: update Page.content for read-only preview / search (non-blocking)
-  if (options.updatePageContent !== false) {
+  // Optional distributed persistence lock across multiple server instances
+  let distLock = null;
+  if (options.collabRedis && typeof options.collabRedis.acquirePersistenceLock === 'function') {
     try {
-      const fragment = doc.getXmlFragment('default');
-      if (fragment) {
-        const previewJson = yTiptap.yXmlFragmentToProsemirrorJSON(fragment);
-        if (previewJson && previewJson.type === 'doc') {
-          await prisma.page.update({
-            where: { id: pageId },
-            data: { content: previewJson },
-          }).catch((err) => {
-            // Ignore preview update failure if page row was deleted or locked
-            console.warn(`[CollabPersistence] Preview JSON sync skipped for "${pageId}":`, err.message);
-          });
-        }
-      }
-    } catch {
-      // Non-fatal: Preview generation failure must never break binary persistence
+      distLock = await options.collabRedis.acquirePersistenceLock(pageId, 10000);
+    } catch (err) {
+      console.warn(`[CollabPersistence] Persistence lock acquisition warning for "${pageId}":`, err.message);
     }
   }
 
-  return {
-    success: true,
-    pageId,
-    stateVersion: documentState.stateVersion,
-    byteLength: snapshotBuffer.length,
-    savedAt: documentState.updatedAt,
-  };
+  try {
+    // Encode binary snapshot from synchronized Y.Doc state
+    const snapshotBytes = Y.encodeStateAsUpdate(doc);
+    const snapshotBuffer = Buffer.from(snapshotBytes);
+
+    // Atomic upsert into DocumentState
+    const documentState = await prisma.documentState.upsert({
+      where: { pageId },
+      create: {
+        pageId,
+        yjsState: snapshotBuffer,
+        stateVersion: 1,
+      },
+      update: {
+        yjsState: snapshotBuffer,
+        stateVersion: { increment: 1 },
+      },
+    });
+
+    // Notify Redis cluster of persistence completion
+    if (options.collabRedis && typeof options.collabRedis.publishPersisted === 'function') {
+      options.collabRedis.publishPersisted(pageId, documentState.stateVersion).catch(() => {});
+    }
+
+    // Dual-write: update Page.content for read-only preview / search (non-blocking)
+    if (options.updatePageContent !== false) {
+      try {
+        const fragment = doc.getXmlFragment('default');
+        if (fragment) {
+          const previewJson = yTiptap.yXmlFragmentToProsemirrorJSON(fragment);
+          if (previewJson && previewJson.type === 'doc') {
+            await prisma.page.update({
+              where: { id: pageId },
+              data: { content: previewJson },
+            }).catch((err) => {
+              // Ignore preview update failure if page row was deleted or locked
+              console.warn(`[CollabPersistence] Preview JSON sync skipped for "${pageId}":`, err.message);
+            });
+          }
+        }
+      } catch {
+        // Non-fatal: Preview generation failure must never break binary persistence
+      }
+    }
+
+    return {
+      success: true,
+      pageId,
+      stateVersion: documentState.stateVersion,
+      byteLength: snapshotBuffer.length,
+      savedAt: documentState.updatedAt,
+    };
+  } finally {
+    if (distLock && typeof distLock.release === 'function') {
+      try {
+        await distLock.release();
+      } catch {}
+    }
+  }
 }
 
 /**
@@ -434,9 +458,36 @@ export function getPersistenceStatus(pageId) {
 // Security Requirement: Server-Side Awareness Identity Binding Helper
 // ============================================================================
 
+const COLLAB_PALETTE_HEX = [
+  '#E03E3E',
+  '#D9730D',
+  '#CB9301',
+  '#0F7B6C',
+  '#0B6E99',
+  '#4C6EF5',
+  '#6940A5',
+  '#AD1A72',
+];
+
+function djb2Hash(str) {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function getDeterministicCollaboratorColor(userId) {
+  if (!userId || typeof userId !== 'string') {
+    return COLLAB_PALETTE_HEX[0];
+  }
+  return COLLAB_PALETTE_HEX[djb2Hash(userId) % COLLAB_PALETTE_HEX.length];
+}
+
 /**
  * Sanitizes an incoming binary awareness update frame by strictly binding the
- * user identity (id, name, role) to the verified JWT session credentials.
+ * user identity (id, name, role, deterministic color) to the verified JWT session credentials.
  * Prevents client-side identity spoofing and unauthorized clientID mutations.
  *
  * @param {Uint8Array} updateBytes Incoming raw awareness update payload
@@ -455,6 +506,8 @@ export function sanitizeAwarenessUpdate(updateBytes, authenticatedUser) {
     throw new Error('[CollabSecurity] Cannot sanitize awareness update: Missing authenticated user');
   }
 
+  const deterministicColor = getDeterministicCollaboratorColor(authenticatedUser.userId);
+
   return awarenessProtocol.modifyAwarenessUpdate(updateBytes, (state) => {
     // If state is null or primitive (e.g. client disconnect signal), preserve it
     if (!state || typeof state !== 'object') {
@@ -463,12 +516,16 @@ export function sanitizeAwarenessUpdate(updateBytes, authenticatedUser) {
 
     const clientUser = state.user && typeof state.user === 'object' ? state.user : {};
 
-    // Strictly enforce authenticated user credentials
+    // Strictly enforce authenticated user credentials and deterministic color
     const sanitizedUser = {
       ...clientUser,
       id: authenticatedUser.userId,
       name: authenticatedUser.userName,
       role: authenticatedUser.role,
+      color:
+        clientUser.color && typeof clientUser.color === 'string' && /^#[0-9a-fA-F]{6}$/i.test(clientUser.color)
+          ? clientUser.color
+          : deterministicColor,
     };
 
     // Strip any root-level spoofed identity fields

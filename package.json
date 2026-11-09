@@ -22,6 +22,7 @@
     "@tiptap/react": "^3.32.2",
     "@tiptap/starter-kit": "^3.32.2",
     "bcryptjs": "^3.0.3",
+    "ioredis": "^6.0.0",
     "jose": "^6.2.14",
     "lucide-react": "^1.65.0",
     "next": "16.4.3",
