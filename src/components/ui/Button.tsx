@@ -9,14 +9,19 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant = "secondary", size = "md", children, ...props }, ref) => {
     const baseClasses =
-      "inline-flex items-center justify-center font-medium rounded-md transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50 disabled:pointer-events-none cursor-pointer";
+      "inline-flex items-center justify-center font-medium rounded-md transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 disabled:opacity-50 disabled:pointer-events-none cursor-pointer";
 
     const variantClasses = {
-      primary: "bg-[#2383e2] text-white hover:bg-[#1d6fc2] border border-[#2383e2] shadow-xs",
-      secondary: "bg-[#f7f7f5] text-[#37352f] hover:bg-[#efefed] border border-[#e9e9e7]",
-      outline: "bg-white text-[#37352f] hover:bg-[#f7f7f5] border border-[#e9e9e7]",
-      ghost: "text-[#37352f] hover:bg-[#efefed]",
-      danger: "bg-red-50 text-red-600 hover:bg-red-100 border border-red-200",
+      primary:
+        "bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] border border-[var(--accent)] shadow-xs",
+      secondary:
+        "bg-[var(--bg-raised)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)]",
+      outline:
+        "bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)]",
+      ghost:
+        "text-[var(--text-primary)] hover:bg-[var(--bg-hover)]",
+      danger:
+        "bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/20 border border-red-200 dark:border-red-500/30",
     }[variant];
 
     const sizeClasses = {

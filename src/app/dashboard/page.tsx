@@ -15,6 +15,7 @@ import {
   Loader2,
   AlertCircle,
   Building2,
+  X,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/Button";
@@ -166,15 +167,15 @@ export default function DashboardPage() {
 
   return (
     <AppShell pageTitle="Dashboard">
-      <div className="space-y-8">
-        {/* Welcome Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b border-[#e9e9e7]">
+      <div className="space-y-6 max-w-5xl mx-auto">
+        {/* Editorial Welcome Header */}
+        <div className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-4 pb-5 border-b border-[var(--border-subtle)]">
           <div>
-            <h1 className="text-2xl font-bold text-[#37352f] tracking-tight">
-              Good day, {user?.name || "Collaborator"}
+            <h1 className="text-2xl sm:text-3xl font-serif font-normal text-[var(--text-primary)] tracking-tight">
+              Welcome back, {user?.name || "Collaborator"}
             </h1>
-            <p className="text-sm text-neutral-500 mt-1">
-              Select or create a collaborative workspace to manage your documents.
+            <p className="text-xs sm:text-sm text-[var(--text-muted)] mt-1">
+              Select or create a workspace to draft, organize, and edit documents in real time.
             </p>
           </div>
 
@@ -183,185 +184,187 @@ export default function DashboardPage() {
               variant="primary"
               size="sm"
               onClick={() => setIsCreateOpen(true)}
+              className="gap-1.5 shadow-2xs"
             >
-              <Plus className="w-4 h-4 mr-1.5" />
-              <span>New Workspace</span>
+              <Plus className="w-3.5 h-3.5" />
+              <span>Create workspace</span>
             </Button>
           </div>
         </div>
 
         {errorMessage && (
-          <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 text-xs text-red-700 rounded-lg">
-            <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+          <div className="flex items-center gap-2.5 p-3 bg-red-500/10 border border-red-500/20 text-xs text-red-600 dark:text-red-400 rounded-md">
+            <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
             <span>{errorMessage}</span>
           </div>
         )}
 
-        {/* Quick Search */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
+        {/* Refined Search & Stats Bar */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+          <div className="relative flex-1 max-w-md">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)]" />
             <input
               type="text"
-              placeholder="Filter your workspaces..."
+              placeholder="Search workspaces..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-sm bg-[#fafafa] border border-[#e5e7eb] rounded-md text-[#37352f] placeholder:text-neutral-400 focus:outline-none focus:bg-white focus:border-[#2383e2] transition-colors"
+              className="w-full pl-8 pr-8 py-1.5 text-xs bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-md text-[var(--text-primary)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] transition-colors"
             />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-faint)] hover:text-[var(--text-primary)]"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
           </div>
-          <Button
-            variant="outline"
-            className="text-xs"
-            onClick={() => setIsCreateOpen(true)}
-          >
-            <FolderPlus className="w-3.5 h-3.5 mr-1.5 text-neutral-500" />
-            <span>Create Workspace</span>
-          </Button>
-        </div>
 
-        {/* Workspaces List Section */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between text-xs font-semibold text-neutral-500 uppercase tracking-wider">
-            <span className="flex items-center gap-1.5">
-              <Building2 className="w-3.5 h-3.5" />
-              <span>Your Workspaces</span>
-            </span>
-            <span className="text-neutral-400 text-[11px] font-normal normal-case">
+          <div className="text-[11px] font-mono text-[var(--text-faint)] flex items-center gap-1.5 self-end sm:self-center">
+            <Building2 className="w-3.5 h-3.5 text-[var(--text-muted)]" />
+            <span>
               {filteredWorkspaces.length}{" "}
               {filteredWorkspaces.length === 1 ? "workspace" : "workspaces"}
             </span>
           </div>
+        </div>
 
-          {/* Loading Skeleton State */}
+        {/* Workspaces Collection */}
+        <div>
+          {/* Loading Skeleton */}
           {isLoading ? (
-            <div className="grid gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
               {[1, 2, 3].map((i) => (
                 <div
                   key={i}
-                  className="p-4 bg-white border border-[#e9e9e7] rounded-xl flex items-center justify-between animate-pulse"
+                  className="p-4 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg space-y-3 animate-pulse"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-[#efefed]" />
-                    <div className="space-y-1.5">
-                      <div className="h-4 w-40 bg-[#efefed] rounded" />
-                      <div className="h-3 w-24 bg-[#efefed] rounded" />
+                    <div className="w-8 h-8 rounded-md bg-[var(--bg-hover)]" />
+                    <div className="space-y-1 flex-1">
+                      <div className="h-3.5 w-3/4 bg-[var(--bg-hover)] rounded" />
+                      <div className="h-2.5 w-1/3 bg-[var(--bg-hover)] rounded" />
                     </div>
                   </div>
-                  <div className="h-8 w-24 bg-[#efefed] rounded" />
+                  <div className="h-6 w-full bg-[var(--bg-hover)] rounded" />
                 </div>
               ))}
             </div>
           ) : workspaces.length === 0 ? (
-            /* Empty State */
-            <div className="p-12 border border-dashed border-[#e5e7eb] rounded-xl bg-[#fafafa]/50 text-center space-y-4">
-              <div className="w-12 h-12 rounded-full bg-blue-50 text-[#2383e2] flex items-center justify-center mx-auto">
-                <Building2 className="w-6 h-6" />
+            /* Inviting Editorial Empty State */
+            <div className="py-14 px-6 border border-dashed border-[var(--border-subtle)] rounded-lg bg-[var(--bg-surface)] text-center space-y-4">
+              <div className="w-10 h-10 rounded-md bg-[var(--accent-light)] text-[var(--accent)] flex items-center justify-center mx-auto border border-[var(--accent-border)]/40">
+                <FolderPlus className="w-5 h-5" />
               </div>
-              <div className="space-y-1 max-w-sm mx-auto">
-                <h3 className="text-sm font-semibold text-[#37352f]">
+              <div className="space-y-1.5 max-w-sm mx-auto">
+                <h3 className="text-base font-serif font-normal text-[var(--text-primary)]">
                   No workspaces yet
                 </h3>
-                <p className="text-xs text-neutral-500 leading-relaxed">
-                  Create your first collaborative workspace to start organizing documents and collaborating in real time.
+                <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                  Create your first collaborative workspace to start drafting documents and editing together in real time.
                 </p>
               </div>
               <Button
                 variant="primary"
                 size="sm"
                 onClick={() => setIsCreateOpen(true)}
+                className="gap-1.5"
               >
-                <Plus className="w-3.5 h-3.5 mr-1" />
-                <span>Create Workspace</span>
+                <Plus className="w-3.5 h-3.5" />
+                <span>Create workspace</span>
               </Button>
             </div>
           ) : filteredWorkspaces.length === 0 ? (
-            /* Search Empty State */
-            <div className="p-8 border border-[#e9e9e7] rounded-xl bg-white text-center space-y-2">
-              <p className="text-sm font-medium text-[#37352f]">
+            /* Search Filter Empty State */
+            <div className="p-8 border border-[var(--border-subtle)] rounded-lg bg-[var(--bg-surface)] text-center space-y-2">
+              <p className="text-xs text-[var(--text-muted)]">
                 No workspaces matching &ldquo;{searchQuery}&rdquo;
               </p>
-              <Button
-                variant="ghost"
-                size="sm"
+              <button
                 onClick={() => setSearchQuery("")}
-                className="text-xs text-[#2383e2]"
+                className="text-xs text-[var(--accent)] hover:underline"
               >
-                Clear Search Filter
-              </Button>
+                Clear search filter
+              </button>
             </div>
           ) : (
-            <div className="grid gap-3">
+            /* Refined Workspace Grid */
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
               {filteredWorkspaces.map((ws) => (
                 <div
                   key={ws.id}
-                  className="p-4 bg-white border border-[#e9e9e7] hover:border-[#d0d0ce] rounded-xl transition-all shadow-2xs hover:shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                  className="group relative p-4 bg-[var(--bg-surface)] border border-[var(--border-subtle)] hover:border-[var(--border-strong)] rounded-lg transition-all shadow-2xs hover:shadow-xs flex flex-col justify-between gap-4"
                 >
-                  <div className="flex items-center gap-3.5 min-w-0">
-                    <div className="w-10 h-10 rounded-lg bg-[#2383e2] text-white flex items-center justify-center font-bold text-sm shrink-0">
-                      {ws.name.charAt(0).toUpperCase()}
+                  <div className="space-y-2.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-8 h-8 rounded-md bg-[var(--accent-light)] text-[var(--accent)] border border-[var(--accent-border)]/40 flex items-center justify-center font-mono text-xs font-semibold shrink-0">
+                          {ws.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <Link
+                            href={`/workspace/${ws.id}`}
+                            className="text-sm font-medium text-[var(--text-primary)] hover:text-[var(--accent)] transition-colors truncate block"
+                          >
+                            {ws.name}
+                          </Link>
+                          <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-[var(--bg-raised)] text-[var(--text-muted)] border border-[var(--border-subtle)] inline-block mt-0.5">
+                            {ws.role}
+                          </span>
+                        </div>
+                      </div>
+
+                      {ws.isOwner && (
+                        <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => {
+                              setActiveWs(ws);
+                              setRenameValue(ws.name);
+                              setIsRenameOpen(true);
+                            }}
+                            className="p-1 rounded text-[var(--text-faint)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
+                            title="Rename workspace"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setActiveWs(ws);
+                              setIsDeleteOpen(true);
+                            }}
+                            className="p-1 rounded text-[var(--text-faint)] hover:text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer"
+                            title="Delete workspace"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )}
                     </div>
-                    <div className="flex flex-col min-w-0">
-                      <div className="flex items-center gap-2">
-                        <Link
-                          href={`/workspace/${ws.id}`}
-                          className="text-sm font-semibold text-[#37352f] hover:text-[#2383e2] transition-colors truncate"
-                        >
-                          {ws.name}
-                        </Link>
-                        <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-blue-50 text-[#2383e2] border border-blue-200 shrink-0">
-                          {ws.role}
+
+                    <div className="flex items-center gap-3 text-[11px] font-mono text-[var(--text-faint)] pt-1">
+                      <span className="flex items-center gap-1">
+                        <Users className="w-3 h-3 text-[var(--text-muted)]" />
+                        <span>
+                          {ws.membersCount} {ws.membersCount === 1 ? "member" : "members"}
                         </span>
-                      </div>
-                      <div className="flex items-center gap-3 text-xs text-neutral-400 mt-1">
-                        <span className="flex items-center gap-1">
-                          <Users className="w-3 h-3 text-neutral-400" />
-                          <span>
-                            {ws.membersCount} Member{ws.membersCount === 1 ? "" : "s"}
-                          </span>
+                      </span>
+                      <span>•</span>
+                      <span className="flex items-center gap-1">
+                        <FileText className="w-3 h-3 text-[var(--text-muted)]" />
+                        <span>
+                          {ws.pagesCount} {ws.pagesCount === 1 ? "document" : "documents"}
                         </span>
-                        <span>•</span>
-                        <span className="flex items-center gap-1">
-                          <FileText className="w-3 h-3 text-neutral-400" />
-                          <span>
-                            {ws.pagesCount} Page{ws.pagesCount === 1 ? "" : "s"}
-                          </span>
-                        </span>
-                      </div>
+                      </span>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
-                    {ws.isOwner && (
-                      <>
-                        <button
-                          onClick={() => {
-                            setActiveWs(ws);
-                            setRenameValue(ws.name);
-                            setIsRenameOpen(true);
-                          }}
-                          className="p-1.5 rounded-md text-neutral-400 hover:text-neutral-700 hover:bg-[#efefed] transition-colors cursor-pointer"
-                          title="Rename workspace"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => {
-                            setActiveWs(ws);
-                            setIsDeleteOpen(true);
-                          }}
-                          className="p-1.5 rounded-md text-neutral-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                          title="Delete workspace"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </>
-                    )}
-
-                    <Link href={`/workspace/${ws.id}`}>
-                      <Button variant="secondary" size="sm" className="text-xs">
-                        <span>Open</span>
-                        <ChevronRight className="w-3.5 h-3.5 ml-1" />
-                      </Button>
+                  <div className="pt-2 border-t border-[var(--border-subtle)]/70 flex items-center justify-end">
+                    <Link
+                      href={`/workspace/${ws.id}`}
+                      className="text-xs font-medium text-[var(--text-muted)] group-hover:text-[var(--accent)] flex items-center gap-1 transition-colors"
+                    >
+                      <span>Open workspace</span>
+                      <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
                     </Link>
                   </div>
                 </div>
@@ -375,7 +378,7 @@ export default function DashboardPage() {
       <Dialog
         isOpen={isCreateOpen}
         onClose={() => !isSubmitting && setIsCreateOpen(false)}
-        title="Create New Workspace"
+        title="Create Workspace"
         description="Organize documents and invite collaborators to your space."
         footer={
           <>
@@ -399,7 +402,7 @@ export default function DashboardPage() {
                   <span>Creating...</span>
                 </>
               ) : (
-                "Create Workspace"
+                "Create workspace"
               )}
             </Button>
           </>
@@ -408,8 +411,8 @@ export default function DashboardPage() {
         <form onSubmit={handleCreate} className="space-y-4">
           <Input
             id="dash-create-ws-name"
-            label="Workspace Name"
-            placeholder="e.g. Engineering Team, Sprint 2026"
+            label="Workspace name"
+            placeholder="e.g. Editorial Board, Architecture Team"
             value={newWsName}
             onChange={(e) => setNewWsName(e.target.value)}
             disabled={isSubmitting}
@@ -446,7 +449,7 @@ export default function DashboardPage() {
                   <span>Saving...</span>
                 </>
               ) : (
-                "Save Changes"
+                "Save changes"
               )}
             </Button>
           </>
@@ -455,7 +458,7 @@ export default function DashboardPage() {
         <form onSubmit={handleRename} className="space-y-4">
           <Input
             id="dash-rename-ws-name"
-            label="Workspace Name"
+            label="Workspace name"
             value={renameValue}
             onChange={(e) => setRenameValue(e.target.value)}
             disabled={isSubmitting}
@@ -469,7 +472,7 @@ export default function DashboardPage() {
         isOpen={isDeleteOpen}
         onClose={() => !isSubmitting && setIsDeleteOpen(false)}
         title="Delete Workspace"
-        description={`Are you sure you want to permanently delete "${activeWs?.name}"? All associated pages and member records will be deleted. This action cannot be undone.`}
+        description={`Are you sure you want to permanently delete "${activeWs?.name}"? All associated documents and member records will be permanently removed.`}
         footer={
           <>
             <Button
@@ -492,14 +495,14 @@ export default function DashboardPage() {
                   <span>Deleting...</span>
                 </>
               ) : (
-                "Confirm Delete"
+                "Delete workspace"
               )}
             </Button>
           </>
         }
       >
-        <p className="text-xs text-red-600">
-          This operation is permanent. Only workspace owners can delete this workspace.
+        <p className="text-xs text-red-600 dark:text-red-400">
+          This operation is permanent and cannot be undone. Only workspace owners have permission to delete this space.
         </p>
       </Dialog>
     </AppShell>

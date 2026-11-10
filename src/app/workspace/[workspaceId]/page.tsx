@@ -3,10 +3,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   FileQuestion,
-  Clock,
-  User,
   Shield,
   Layers,
+  FileText,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/Button";
@@ -40,13 +39,15 @@ async function WorkspaceDocument({
       notFound();
     }
     return (
-      <div className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center p-6 text-center space-y-4">
-        <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center">
+      <div className="min-h-screen bg-[var(--bg-app)] flex flex-col items-center justify-center p-6 text-center space-y-4">
+        <div className="w-12 h-12 rounded-full bg-red-500/10 text-red-600 dark:text-red-400 flex items-center justify-center">
           <Shield className="w-6 h-6" />
         </div>
         <div className="space-y-1.5 max-w-sm">
-          <h1 className="text-xl font-bold text-[#37352f]">Access Restricted</h1>
-          <p className="text-xs text-neutral-500">
+          <h1 className="font-serif-editorial text-2xl font-normal text-[var(--text-primary)]">
+            Access Restricted
+          </h1>
+          <p className="text-xs text-[var(--text-muted)]">
             {authCheck.error || "You do not have permission to view this workspace."}
           </p>
         </div>
@@ -76,16 +77,16 @@ async function WorkspaceDocument({
   if (!pageId) {
     return (
       <AppShell workspaceId={workspaceId} pageTitle={workspace.name} userRole={effectiveRole}>
-        <div className="py-12 px-4 text-center max-w-md mx-auto space-y-5">
-          <div className="w-12 h-12 rounded-full bg-blue-50 text-[#2383e2] flex items-center justify-center mx-auto">
+        <div className="py-16 px-4 text-center max-w-md mx-auto space-y-5">
+          <div className="w-12 h-12 rounded-full bg-[var(--accent-light)] text-[var(--accent)] flex items-center justify-center mx-auto border border-[var(--accent-border)]/30">
             <Layers className="w-6 h-6" />
           </div>
 
           <div className="space-y-1.5">
-            <h1 className="text-xl font-bold tracking-tight text-[#37352f]">
+            <h1 className="font-serif-editorial text-2xl font-normal tracking-tight text-[var(--text-primary)]">
               {workspace.name}
             </h1>
-            <p className="text-xs text-neutral-500 leading-relaxed">
+            <p className="text-xs text-[var(--text-muted)] leading-relaxed">
               {workspacePages.length === 0
                 ? "This workspace does not have any documents yet. Use the sidebar on the left to add your first page."
                 : "Select a document from the sidebar page tree to view and collaborate."}
@@ -131,15 +132,15 @@ async function WorkspaceDocument({
   if (!activePage || activePage.workspaceId !== workspaceId) {
     return (
       <AppShell workspaceId={workspaceId} pageTitle="Document Not Found">
-        <div className="py-12 px-4 text-center max-w-md mx-auto space-y-4">
-          <div className="w-12 h-12 rounded-full bg-neutral-100 text-neutral-400 flex items-center justify-center mx-auto">
+        <div className="py-16 px-4 text-center max-w-md mx-auto space-y-4">
+          <div className="w-12 h-12 rounded-full bg-[var(--bg-raised)] text-[var(--text-faint)] flex items-center justify-center mx-auto border border-[var(--border-subtle)]">
             <FileQuestion className="w-6 h-6" />
           </div>
           <div className="space-y-1.5">
-            <h1 className="text-xl font-bold tracking-tight text-[#37352f]">
+            <h1 className="font-serif-editorial text-2xl font-normal tracking-tight text-[var(--text-primary)]">
               Document Not Found
             </h1>
-            <p className="text-xs text-neutral-500 leading-relaxed">
+            <p className="text-xs text-[var(--text-muted)] leading-relaxed">
               The requested document does not exist in this workspace or was removed.
             </p>
           </div>
@@ -157,42 +158,8 @@ async function WorkspaceDocument({
 
   return (
     <AppShell workspaceId={workspaceId} pageTitle={activePage.title} userRole={effectiveRole}>
-      <div className="space-y-4">
-        {/* Document Metadata & Hierarchy Header */}
-        <div className="max-w-[768px] mx-auto px-4 sm:px-6 pt-2 space-y-2">
-          {activePage.parentPage && (
-            <div className="flex items-center gap-1.5 text-xs text-neutral-500">
-              <span>Parent Document:</span>
-              <Link
-                href={`/workspace/${workspaceId}?page=${activePage.parentPage.id}`}
-                className="text-[#2383e2] hover:underline font-medium"
-              >
-                {activePage.parentPage.title}
-              </Link>
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center gap-3 text-xs text-neutral-400">
-            <span className="flex items-center gap-1">
-              <User className="w-3.5 h-3.5 text-neutral-400" />
-              <span>Created by {activePage.createdBy?.name || "Member"}</span>
-            </span>
-            <span>•</span>
-            <span className="flex items-center gap-1">
-              <Clock className="w-3.5 h-3.5 text-neutral-400" />
-              <span>{new Date(activePage.updatedAt).toLocaleDateString()}</span>
-            </span>
-            <span>•</span>
-            <span>
-              Role:{" "}
-              <strong className="text-emerald-700 font-semibold">
-                {effectiveRole}
-              </strong>
-            </span>
-          </div>
-        </div>
-
-        {/* TipTap Rich-Text Editor Canvas */}
+      <div className="space-y-6">
+        {/* TipTap Rich-Text Editor Canvas on Centered Manuscript Sheet */}
         <RichTextEditor
           key={activePage.id}
           workspaceId={workspaceId}
@@ -200,6 +167,9 @@ async function WorkspaceDocument({
           initialTitle={activePage.title}
           initialContent={activePage.content as JSONContent | null}
           isEditable={canEdit}
+          authorName={activePage.createdBy?.name || "Member"}
+          updatedAt={activePage.updatedAt}
+          parentPage={activePage.parentPage}
           currentUser={{
             id: authCheck.data.session.userId,
             name: authCheck.data.session.name,
@@ -210,8 +180,8 @@ async function WorkspaceDocument({
 
         {/* Child Pages Quick Links if any */}
         {activePage.childPages.length > 0 && (
-          <div className="max-w-[768px] mx-auto px-4 sm:px-6 pt-4 space-y-2 border-t border-neutral-100">
-            <h4 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
+          <div className="max-w-[780px] mx-auto px-2 sm:px-0 pt-4 space-y-2 border-t border-[var(--border-subtle)]">
+            <h4 className="text-[11px] font-mono uppercase tracking-wider text-[var(--text-faint)]">
               Subpages ({activePage.childPages.length})
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -219,10 +189,10 @@ async function WorkspaceDocument({
                 <Link
                   key={child.id}
                   href={`/workspace/${workspaceId}?page=${child.id}`}
-                  className="flex items-center gap-2.5 p-2.5 rounded-lg border border-[#e9e9e7] hover:border-[#2383e2] bg-white transition-colors"
+                  className="flex items-center gap-2.5 p-2.5 rounded-md border border-[var(--border-subtle)] hover:border-[var(--accent-border)] bg-[var(--bg-surface)] hover:bg-[var(--bg-hover)] transition-colors group"
                 >
-                  <span className="text-sm">📄</span>
-                  <span className="text-xs font-medium text-[#37352f] truncate">
+                  <FileText className="w-3.5 h-3.5 text-[var(--text-faint)] group-hover:text-[var(--accent)] shrink-0 transition-colors" />
+                  <span className="text-xs font-medium text-[var(--text-primary)] group-hover:text-[var(--accent)] truncate transition-colors">
                     {child.title}
                   </span>
                 </Link>
@@ -244,7 +214,7 @@ export default async function WorkspaceViewPage({
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen flex items-center justify-center p-8 bg-white text-neutral-400 text-sm">
+        <div className="min-h-screen flex items-center justify-center p-8 bg-[var(--bg-app)] text-[var(--text-faint)] font-mono text-xs">
           Loading workspace...
         </div>
       }

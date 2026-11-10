@@ -51,17 +51,17 @@ export function RoleSelector({
         disabled={disabled}
         onChange={(e) => onChange(e.target.value as SelectableRole)}
         className={cn(
-          "appearance-none bg-white border border-[#e5e7eb] rounded-md font-medium text-[#37352f] transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-[#2383e2] disabled:opacity-60 disabled:cursor-not-allowed hover:bg-[#fafafa]",
+          "appearance-none bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-md font-medium text-[var(--text-primary)] transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] disabled:opacity-60 disabled:cursor-not-allowed hover:bg-[var(--bg-hover)]",
           sizeClasses,
           showIcon ? "pl-7" : "pl-2.5"
         )}
         aria-label="Select member role"
       >
-        <option value="EDITOR">Editor</option>
-        <option value="COMMENTER">Commenter</option>
-        <option value="VIEWER">Viewer</option>
+        <option value="EDITOR" className="bg-[var(--bg-surface)] text-[var(--text-primary)]">Editor</option>
+        <option value="COMMENTER" className="bg-[var(--bg-surface)] text-[var(--text-primary)]">Commenter</option>
+        <option value="VIEWER" className="bg-[var(--bg-surface)] text-[var(--text-primary)]">Viewer</option>
       </select>
-      <ChevronDown className="w-3 h-3 text-neutral-400 absolute right-2 pointer-events-none" />
+      <ChevronDown className="w-3 h-3 text-[var(--text-faint)] absolute right-2 pointer-events-none" />
     </div>
   );
 }

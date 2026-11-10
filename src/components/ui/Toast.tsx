@@ -87,15 +87,15 @@ export function ToastCard({
   onRemove: () => void;
 }) {
   const icons = {
-    success: <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />,
-    error: <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />,
-    info: <Info className="w-4 h-4 text-[#2383e2] shrink-0 mt-0.5" />,
+    success: <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />,
+    error: <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />,
+    info: <Info className="w-4 h-4 text-[var(--accent)] shrink-0 mt-0.5" />,
   };
 
   const borderStyles = {
-    success: "border-emerald-200/80 bg-white",
-    error: "border-rose-200/80 bg-white",
-    info: "border-[#e5e7eb] bg-white",
+    success: "border-emerald-500/30 bg-[var(--bg-surface)]",
+    error: "border-rose-500/30 bg-[var(--bg-surface)]",
+    info: "border-[var(--border-subtle)] bg-[var(--bg-surface)]",
   }[toast.variant || "info"];
 
   return (
@@ -103,16 +103,16 @@ export function ToastCard({
       role="status"
       aria-live="polite"
       className={cn(
-        "pointer-events-auto p-3.5 rounded-lg border shadow-md flex items-start gap-2.5 text-[#37352f] transition-all duration-200",
+        "pointer-events-auto p-3.5 rounded-lg border shadow-md flex items-start gap-2.5 text-[var(--text-primary)] transition-all duration-200",
         borderStyles
       )}
     >
       {icons[toast.variant || "info"]}
 
       <div className="flex-1 min-w-0 pr-1">
-        <p className="text-xs font-semibold text-[#37352f] leading-snug">{toast.message}</p>
+        <p className="text-xs font-semibold text-[var(--text-primary)] leading-snug">{toast.message}</p>
         {toast.description && (
-          <p className="text-[11px] text-neutral-500 mt-0.5 leading-normal">
+          <p className="text-[11px] text-[var(--text-muted)] mt-0.5 leading-normal">
             {toast.description}
           </p>
         )}
@@ -120,7 +120,7 @@ export function ToastCard({
 
       <button
         onClick={onRemove}
-        className="p-1 rounded text-neutral-400 hover:text-neutral-700 hover:bg-[#efefed] shrink-0 transition-colors"
+        className="p-1 rounded text-[var(--text-faint)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] shrink-0 transition-colors cursor-pointer"
         aria-label="Dismiss toast"
       >
         <X className="w-3.5 h-3.5" />

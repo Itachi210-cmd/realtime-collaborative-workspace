@@ -60,7 +60,7 @@ export function buildPageTree(items: PageItem[]): PageNode[] {
       itemMap.set(item.id, {
         id: item.id,
         title: item.title,
-        icon: "📄",
+        icon: "",
         parentPageId: item.parentPageId,
         children: [],
       });
@@ -116,10 +116,10 @@ function PageTreeInner({ workspaceId, userRole }: PageTreeProps) {
 
   // Action dialog state
   const [activeActionNode, setActiveActionNode] = useState<PageNode | null>(null);
-  const [actionType, setActionType] = useState<"rename" | "delete" | "create" | null>(null);
-  const [parentNodeId, setParentNodeId] = useState<string | null>(null);
+  const [actionType, setActionType] = useState<"rename" | "delete" | null>(null);
   const [inputVal, setInputVal] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCreatingDocument, setIsCreatingDocument] = useState(false);
 
   // Sync role if not provided in props
   useEffect(() => {
@@ -290,13 +290,63 @@ function PageTreeInner({ workspaceId, userRole }: PageTreeProps) {
     setActionType("delete");
   };
 
-  const handleOpenCreate = (parentId: string | null = null, e?: React.MouseEvent) => {
+  const handleCreateDocument = async (parentId: string | null = null, e?: React.MouseEvent) => {
     e?.preventDefault();
     e?.stopPropagation();
-    if (!canManagePages) return;
-    setParentNodeId(parentId);
-    setInputVal("");
-    setActionType("create");
+
+    // Prevent duplicate documents from repeated clicks while a request is pending
+    if (isCreatingDocument) return;
+
+    if (!canManagePages) {
+      addToast({
+        message: "Permission denied",
+        description: "You do not have permission to create documents in this workspace.",
+        variant: "error",
+      });
+      return;
+    }
+
+    if (!workspaceId) {
+      addToast({
+        message: "No workspace selected",
+        description: "Please select a workspace before creating a document.",
+        variant: "error",
+      });
+      return;
+    }
+
+    setIsCreatingDocument(true);
+    try {
+      const created = await createPage(workspaceId, "Untitled Document", parentId);
+
+      // Immediately display in the sidebar page tree
+      setRawPages((prev) => {
+        if (prev.some((p) => p.id === created.id)) return prev;
+        return [...prev, created];
+      });
+
+      if (parentId) {
+        setExpandedNodes((prev) => ({ ...prev, [parentId]: true }));
+      }
+
+      // Navigate user to the newly created document/editor
+      router.push(`/workspace/${workspaceId}?page=${created.id}`);
+
+      addToast({
+        message: "Document created",
+        description: `Created and opened "${created.title}"`,
+        variant: "success",
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to create document";
+      addToast({
+        message: "Error creating document",
+        description: msg,
+        variant: "error",
+      });
+    } finally {
+      setIsCreatingDocument(false);
+    }
   };
 
   const handleExecuteAction = async () => {
@@ -376,41 +426,6 @@ function PageTreeInner({ workspaceId, userRole }: PageTreeProps) {
         setActionType(null);
         setActiveActionNode(null);
       }
-    } else if (actionType === "create") {
-      const title = inputVal.trim() || "Untitled Document";
-      setIsSubmitting(true);
-      try {
-        const created = await createPage(workspaceId, title, parentNodeId);
-        setRawPages((prev) => {
-          if (prev.some((p) => p.id === created.id)) {
-            return prev;
-          }
-          return [...prev, created];
-        });
-
-        if (parentNodeId) {
-          setExpandedNodes((prev) => ({ ...prev, [parentNodeId]: true }));
-        }
-
-        router.push(`/workspace/${workspaceId}?page=${created.id}`);
-
-        addToast({
-          message: "Page created",
-          description: `Created and opened "${created.title}"`,
-          variant: "success",
-        });
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "Failed to create page";
-        addToast({
-          message: "Error creating page",
-          description: msg,
-          variant: "error",
-        });
-      } finally {
-        setIsSubmitting(false);
-        setActionType(null);
-        setActiveActionNode(null);
-      }
     }
   };
 
@@ -427,10 +442,10 @@ function PageTreeInner({ workspaceId, userRole }: PageTreeProps) {
           className={cn(
             "group flex items-center justify-between py-1 px-2 rounded-md text-xs transition-colors cursor-pointer select-none",
             isActive
-              ? "bg-[#efefed] text-[#37352f] font-medium"
-              : "text-neutral-600 hover:bg-[#efefed] hover:text-[#37352f]"
+              ? "bg-[var(--bg-hover)] text-[var(--text-primary)] font-medium border border-[var(--border-subtle)]/80"
+              : "text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
           )}
-          style={{ paddingLeft: `${depth * 14 + 8}px` }}
+          style={{ paddingLeft: depth === 0 ? "8px" : "6px" }}
         >
           {/* Main click link */}
           <Link
@@ -440,7 +455,7 @@ function PageTreeInner({ workspaceId, userRole }: PageTreeProps) {
             {hasChildren ? (
               <button
                 onClick={(e) => toggleExpand(node.id, e)}
-                className="p-0.5 -ml-1 text-neutral-400 hover:text-neutral-700 rounded transition-transform"
+                className="p-0.5 -ml-1 text-[var(--text-faint)] hover:text-[var(--text-primary)] rounded transition-colors"
                 aria-label={isExpanded ? "Collapse" : "Expand"}
               >
                 {isExpanded ? (
@@ -453,7 +468,7 @@ function PageTreeInner({ workspaceId, userRole }: PageTreeProps) {
               <span className="w-3.5 -ml-1 inline-block" />
             )}
 
-            <span className="text-sm shrink-0">{node.icon || "📄"}</span>
+            <FileText className="w-3.5 h-3.5 text-[var(--text-faint)] group-hover:text-[var(--text-muted)] shrink-0" />
             <span className="truncate flex-1">{node.title}</span>
           </Link>
 
@@ -461,23 +476,31 @@ function PageTreeInner({ workspaceId, userRole }: PageTreeProps) {
           {canManagePages && (
             <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity shrink-0 ml-1">
               <button
-                onClick={(e) => handleOpenCreate(node.id, e)}
-                className="p-1 rounded text-neutral-400 hover:text-neutral-800 hover:bg-neutral-200/60"
-                title="Add nested subpage"
+                onClick={(e) => handleCreateDocument(node.id, e)}
+                disabled={isCreatingDocument}
+                className="p-1 rounded text-[var(--text-faint)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors disabled:opacity-50 cursor-pointer"
+                title="Add subpage"
+                aria-label="Add subpage"
               >
-                <Plus className="w-3 h-3" />
+                {isCreatingDocument ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Plus className="w-3 h-3" />
+                )}
               </button>
               <button
                 onClick={(e) => handleOpenRename(node, e)}
-                className="p-1 rounded text-neutral-400 hover:text-neutral-800 hover:bg-neutral-200/60"
+                className="p-1 rounded text-[var(--text-faint)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
                 title="Rename page"
+                aria-label="Rename page"
               >
                 <Edit2 className="w-3 h-3" />
               </button>
               <button
                 onClick={(e) => handleOpenDelete(node, e)}
-                className="p-1 rounded text-neutral-400 hover:text-rose-600 hover:bg-rose-50"
+                className="p-1 rounded text-[var(--text-faint)] hover:text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer"
                 title="Delete page"
+                aria-label="Delete page"
               >
                 <Trash2 className="w-3 h-3" />
               </button>
@@ -485,9 +508,9 @@ function PageTreeInner({ workspaceId, userRole }: PageTreeProps) {
           )}
         </div>
 
-        {/* Children Render */}
+        {/* Children Render with subtle vertical hierarchy guide */}
         {hasChildren && isExpanded && (
-          <div className="space-y-0.5">
+          <div className="relative pl-3 ml-2.5 space-y-0.5 border-l border-[var(--border-subtle)]/70">
             {node.children!.map((child) => renderNode(child, depth + 1))}
           </div>
         )}
@@ -498,15 +521,28 @@ function PageTreeInner({ workspaceId, userRole }: PageTreeProps) {
   return (
     <div className="w-full space-y-1">
       {/* Pages Header */}
-      <div className="flex items-center justify-between px-2 pt-2 pb-1 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">
-        <span>Pages Tree</span>
+      <div className="flex items-center justify-between px-2 pt-2.5 pb-1 text-[11px] font-medium text-[var(--text-muted)]">
+        <span>
+          Documents{" "}
+          {rawPages.length > 0 && (
+            <span className="text-[var(--text-faint)] font-mono text-[10px]">
+              ({rawPages.length})
+            </span>
+          )}
+        </span>
         {canManagePages && (
           <button
-            onClick={(e) => handleOpenCreate(null, e)}
-            className="p-1 rounded hover:bg-[#efefed] text-neutral-400 hover:text-neutral-700 transition-colors"
-            title="Create top-level page"
+            onClick={(e) => handleCreateDocument(null, e)}
+            disabled={isCreatingDocument}
+            className="p-1 rounded hover:bg-[var(--bg-hover)] text-[var(--text-faint)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-50 cursor-pointer"
+            title="Create document"
+            aria-label="Create document"
           >
-            <Plus className="w-3.5 h-3.5" />
+            {isCreatingDocument ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Plus className="w-3.5 h-3.5" />
+            )}
           </button>
         )}
       </div>
@@ -514,26 +550,40 @@ function PageTreeInner({ workspaceId, userRole }: PageTreeProps) {
       {/* Pages List or Empty / Loading State */}
       {isLoading ? (
         <div className="px-2 py-3 space-y-1">
-          <div className="h-4 w-28 bg-[#efefed] rounded animate-pulse" />
-          <div className="h-6 w-full bg-[#efefed] rounded animate-pulse" />
-          <div className="h-6 w-full bg-[#efefed] rounded animate-pulse" />
+          <div className="h-4 w-28 bg-[#efefed] dark:bg-[var(--bg-hover)] rounded animate-pulse" />
+          <div className="h-6 w-full bg-[#efefed] dark:bg-[var(--bg-hover)] rounded animate-pulse" />
+          <div className="h-6 w-full bg-[#efefed] dark:bg-[var(--bg-hover)] rounded animate-pulse" />
         </div>
       ) : treeNodes.length === 0 ? (
-        <div className="px-2 py-4 text-center space-y-1.5 bg-neutral-50/60 rounded-md border border-dashed border-neutral-200">
-          <FileText className="w-4 h-4 text-neutral-400 mx-auto" />
-          <p className="text-[11px] text-neutral-500">No pages yet</p>
-          <button
-            onClick={(e) => handleOpenCreate(null, e)}
-            className="text-[11px] font-medium text-[#2383e2] hover:underline cursor-pointer"
-          >
-            + Add a page
-          </button>
+        <div className="px-2 py-4 text-center space-y-1.5 bg-neutral-50/60 dark:bg-[var(--bg-surface)]/50 rounded-md border border-dashed border-neutral-200 dark:border-[var(--border-subtle)]">
+          <FileText className="w-4 h-4 text-neutral-400 dark:text-[var(--text-faint)] mx-auto" />
+          <p className="text-[11px] text-neutral-500 dark:text-[var(--text-muted)]">No documents yet</p>
+          {canManagePages ? (
+            <button
+              onClick={(e) => handleCreateDocument(null, e)}
+              disabled={isCreatingDocument}
+              className="text-[11px] font-medium text-[#2383e2] dark:text-[var(--accent)] hover:underline cursor-pointer disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
+            >
+              {isCreatingDocument ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <span>Creating document...</span>
+                </>
+              ) : (
+                "+ Create document"
+              )}
+            </button>
+          ) : (
+            <p className="text-[10px] text-neutral-400 dark:text-[var(--text-faint)]">
+              Read-only workspace
+            </p>
+          )}
         </div>
       ) : (
         <nav className="space-y-0.5">{treeNodes.map((node) => renderNode(node, 0))}</nav>
       )}
 
-      {/* Action Dialog (Rename / Delete / Create) */}
+      {/* Action Dialog (Rename / Delete) */}
       <Dialog
         isOpen={actionType !== null}
         onClose={() => {
@@ -542,15 +592,7 @@ function PageTreeInner({ workspaceId, userRole }: PageTreeProps) {
             setActiveActionNode(null);
           }
         }}
-        title={
-          actionType === "rename"
-            ? "Rename Page"
-            : actionType === "delete"
-            ? "Delete Page"
-            : parentNodeId
-            ? "Create Subpage"
-            : "Create Page"
-        }
+        title={actionType === "rename" ? "Rename Page" : "Delete Page"}
         description={
           actionType === "delete"
             ? `Are you sure you want to delete "${activeActionNode?.title}"? This cannot be undone.`
@@ -582,17 +624,15 @@ function PageTreeInner({ workspaceId, userRole }: PageTreeProps) {
                 </>
               ) : actionType === "rename" ? (
                 "Rename"
-              ) : actionType === "delete" ? (
-                "Confirm Delete"
               ) : (
-                "Create Page"
+                "Confirm Delete"
               )}
             </Button>
           </>
         }
       >
         {actionType === "delete" ? (
-          <p className="text-xs text-neutral-600">
+          <p className="text-xs text-neutral-600 dark:text-[var(--text-muted)]">
             Deleting this page will remove it and any nested subpages from the database.
           </p>
         ) : (

@@ -1,23 +1,266 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #37352f;
-  --sidebar-bg: #fbfbfa;
-  --sidebar-hover: #efefed;
-  --border-subtle: #e9e9e7;
-  --accent: #2383e2;
+  /* Editorial Minimal — Light Theme (Default) */
+  --bg-app: #F7F5F0;
+  --bg-surface: #FFFFFF;
+  --bg-sidebar: #F0EDE6;
+  --bg-hover: #E8E4DB;
+  --bg-raised: #EFECE5;
+  --border-subtle: #E2DDD5;
+  --border-strong: #C9C3B8;
+  --text-primary: #1A1816;
+  --text-muted: #54504A;
+  --text-faint: #7C776F;
+  --accent: #C85A32;
+  --accent-hover: #B54F2B;
+  --accent-light: #FBEFEA;
+  --accent-border: #E8A892;
+
+  /* Backward-compatible legacy aliases */
+  --background: var(--bg-app);
+  --foreground: var(--text-primary);
+  --sidebar-bg: var(--bg-sidebar);
+  --sidebar-hover: var(--bg-hover);
+
+  /* Typography Stacks */
+  --font-serif: var(--font-newsreader), "Newsreader", "Charter", "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
+  --font-sans: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* System Dark Mode Preference when not forced to light */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg-app: #111113;
+    --bg-surface: #18181B;
+    --bg-sidebar: #0D0D0F;
+    --bg-hover: #222225;
+    --bg-raised: #1F1F23;
+    --border-subtle: #27272A;
+    --border-strong: #3F3F46;
+    --text-primary: #EDECE8;
+    --text-muted: #A39F96;
+    --text-faint: #66635C;
+    --accent: #E07A5F;
+    --accent-hover: #EC8C73;
+    --accent-light: #2A1A14;
+    --accent-border: #6E3929;
+
+    --background: var(--bg-app);
+    --foreground: var(--text-primary);
+    --sidebar-bg: var(--bg-sidebar);
+    --sidebar-hover: var(--bg-hover);
+  }
+}
+
+/* Explicit .dark class or [data-theme="dark"] for manual toggle */
+.dark, [data-theme="dark"] {
+  --bg-app: #111113;
+  --bg-surface: #18181B;
+  --bg-sidebar: #0D0D0F;
+  --bg-hover: #222225;
+  --bg-raised: #1F1F23;
+  --border-subtle: #27272A;
+  --border-strong: #3F3F46;
+  --text-primary: #EDECE8;
+  --text-muted: #A39F96;
+  --text-faint: #66635C;
+  --accent: #E07A5F;
+  --accent-hover: #EC8C73;
+  --accent-light: #2A1A14;
+  --accent-border: #6E3929;
+
+  --background: var(--bg-app);
+  --foreground: var(--text-primary);
+  --sidebar-bg: var(--bg-sidebar);
+  --sidebar-hover: var(--bg-hover);
+}
+
+/* Explicit light theme via data-theme */
+[data-theme="light"] {
+  --bg-app: #F7F5F0;
+  --bg-surface: #FFFFFF;
+  --bg-sidebar: #F0EDE6;
+  --bg-hover: #E8E4DB;
+  --bg-raised: #EFECE5;
+  --border-subtle: #E2DDD5;
+  --border-strong: #C9C3B8;
+  --text-primary: #1A1816;
+  --text-muted: #54504A;
+  --text-faint: #7C776F;
+  --accent: #C85A32;
+  --accent-hover: #B54F2B;
+  --accent-light: #FBEFEA;
+  --accent-border: #E8A892;
+
+  --background: var(--bg-app);
+  --foreground: var(--text-primary);
+  --sidebar-bg: var(--bg-sidebar);
+  --sidebar-hover: var(--bg-hover);
 }
 
 body {
-  background-color: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom scrollbar for Notion-like minimal UI */
+/* Editorial Serif Utility */
+.font-serif-editorial {
+  font-family: var(--font-serif);
+}
+
+/* ProseMirror & TipTap Editorial Typography */
+.ProseMirror {
+  outline: none !important;
+  color: var(--text-primary);
+  line-height: 1.75;
+  font-size: 1.0625rem; /* 17px - ideal editorial reading measure */
+  font-family: var(--font-sans);
+}
+
+.ProseMirror p {
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
+}
+
+.ProseMirror h1 {
+  font-family: var(--font-serif);
+  font-size: 2rem;
+  font-weight: 500;
+  line-height: 1.25;
+  color: var(--text-primary);
+  letter-spacing: -0.015em;
+  margin-top: 1.6em;
+  margin-bottom: 0.5em;
+}
+
+.ProseMirror h2 {
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  margin-top: 1.4em;
+  margin-bottom: 0.4em;
+}
+
+.ProseMirror h3 {
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--text-primary);
+  margin-top: 1.2em;
+  margin-bottom: 0.3em;
+}
+
+.ProseMirror blockquote {
+  border-left: 2px solid var(--accent);
+  padding-left: 1rem;
+  margin-left: 0;
+  margin-right: 0;
+  margin-top: 1.25em;
+  margin-bottom: 1.25em;
+  color: var(--text-muted);
+  font-style: italic;
+  font-family: var(--font-serif);
+}
+
+.ProseMirror ul,
+.ProseMirror ol {
+  padding-left: 1.5rem;
+  margin-top: 0.6em;
+  margin-bottom: 0.6em;
+}
+
+.ProseMirror li {
+  margin-top: 0.25em;
+  margin-bottom: 0.25em;
+}
+
+.ProseMirror pre {
+  background-color: var(--bg-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 0.875rem 1rem;
+  margin-top: 1em;
+  margin-bottom: 1em;
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  overflow-x: auto;
+  color: var(--text-primary);
+}
+
+.ProseMirror code {
+  background-color: var(--bg-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 0.15em 0.35em;
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  color: var(--text-primary);
+}
+
+.ProseMirror pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+}
+
+.ProseMirror hr {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  margin: 2rem 0;
+}
+
+/* TipTap Empty Placeholder */
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--text-faint);
+  pointer-events: none;
+  height: 0;
+  font-style: normal;
+}
+
+/* Collaborative Cursor & Caret */
+.collaboration-cursor__caret {
+  position: relative;
+  margin-left: -1px;
+  margin-right: -1px;
+  border-left: 2px solid;
+  border-right: 0;
+  word-break: normal;
+  pointer-events: none;
+}
+
+.collaboration-cursor__label {
+  position: absolute;
+  top: -1.35em;
+  left: -2px;
+  font-size: 10px;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  line-height: 1;
+  color: #ffffff;
+  padding: 2px 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+  user-select: none;
+  pointer-events: none;
+  z-index: 20;
+  letter-spacing: 0.02em;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+/* Minimal Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -26,9 +269,9 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.12);
+  background: var(--border-strong);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--text-faint);
 }

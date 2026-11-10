@@ -34,7 +34,6 @@ import {
   type CollabWebsocketProvider,
   type SaveStatusDetails,
 } from "@/lib/collab/collab-provider";
-import { DEFAULT_PAGE_CONTENT } from "@/lib/validations/page";
 import { useRouter } from "next/navigation";
 
 export interface CurrentEditorUser {
@@ -51,17 +50,33 @@ interface RichTextEditorProps {
   initialContent?: JSONContent | null;
   isEditable?: boolean;
   currentUser?: CurrentEditorUser | null;
+  authorName?: string;
+  updatedAt?: string | Date;
+  parentPage?: { id: string; title: string } | null;
 }
 
 export function RichTextEditor({
   workspaceId,
   pageId,
   initialTitle,
-  initialContent,
+  initialContent: _initialContent,
   isEditable = true,
   currentUser,
+  authorName,
+  updatedAt,
+  parentPage,
 }: RichTextEditorProps) {
   const router = useRouter();
+
+  // Formatted publication date
+  const formattedDate = useMemo(() => {
+    if (!updatedAt) return new Date().toLocaleDateString();
+    return new Date(updatedAt).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  }, [updatedAt]);
 
   // React 19 idiomatic SSR / hydration safe client mounting
   const isMounted = useSyncExternalStore(
@@ -305,7 +320,7 @@ export function RichTextEditor({
             autolink: true,
             HTMLAttributes: {
               class:
-                "text-[#2383e2] underline underline-offset-2 hover:text-blue-700 cursor-pointer",
+                "text-[var(--accent)] underline underline-offset-2 hover:text-[var(--accent-hover)] cursor-pointer",
             },
           },
           underline: {},
@@ -332,7 +347,7 @@ export function RichTextEditor({
       editorProps: {
         attributes: {
           class:
-            "prose prose-neutral max-w-none focus:outline-none min-h-[360px] text-sm sm:text-base leading-relaxed text-[#37352f]",
+            "prose prose-neutral max-w-none focus:outline-none min-h-[360px] text-sm sm:text-base leading-relaxed text-[var(--text-primary)]",
         },
       },
     },
@@ -341,14 +356,13 @@ export function RichTextEditor({
 
   if (!isMounted) {
     return (
-      <div className="space-y-6">
-        <div className="sticky top-0 z-10 -mx-4 -mt-4 px-4 py-2 bg-white/95 border-b border-[#e9e9e7] h-10 animate-pulse bg-neutral-50" />
-        <div className="max-w-[768px] mx-auto px-4 py-8 space-y-6">
-          <div className="h-10 bg-neutral-100 rounded-md w-3/4 animate-pulse" />
+      <div className="flex justify-center w-full">
+        <div className="w-full max-w-[780px] bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-xl shadow-xs px-6 sm:px-12 py-10 space-y-6 animate-pulse">
+          <div className="h-10 bg-[var(--bg-raised)] rounded-md w-3/4" />
           <div className="space-y-3 pt-4">
-            <div className="h-4 bg-neutral-100 rounded w-full animate-pulse" />
-            <div className="h-4 bg-neutral-100 rounded w-5/6 animate-pulse" />
-            <div className="h-4 bg-neutral-100 rounded w-2/3 animate-pulse" />
+            <div className="h-4 bg-[var(--bg-raised)] rounded w-full" />
+            <div className="h-4 bg-[var(--bg-raised)] rounded w-5/6" />
+            <div className="h-4 bg-[var(--bg-raised)] rounded w-2/3" />
           </div>
         </div>
       </div>
@@ -357,181 +371,205 @@ export function RichTextEditor({
 
   return (
     <div className="space-y-4">
-      {/* Sticky Formatting Toolbar for Editors OR Read-Only Banner for Commenters/Viewers */}
-      {isEditable ? (
-        <EditorToolbar editor={editor} disabled={false} />
-      ) : (
-        <div className="sticky top-0 z-10 -mx-4 -mt-4 px-4 py-2 bg-neutral-50/95 backdrop-blur-sm border-b border-[#e9e9e7] flex items-center justify-between text-xs text-neutral-600">
-          <div className="flex items-center gap-2 font-medium">
-            <Eye className="w-4 h-4 text-neutral-500 shrink-0" />
-            <span>
-              {currentUser?.role === "COMMENTER"
-                ? "Commenter Mode — You can view and comment, but document editing is disabled."
-                : "View-Only Mode — You have read-only access to this document."}
-            </span>
-          </div>
-          <span className="text-[11px] px-2 py-0.5 rounded bg-neutral-200/70 font-semibold text-neutral-700 uppercase tracking-wider shrink-0">
-            {currentUser?.role || "VIEWER"}
-          </span>
-        </div>
-      )}
-
-      {/* Main Canvas + Side Comments Panel */}
       <div className="relative flex justify-center w-full">
-        {/* Centered Document Canvas (720px - 768px) */}
-        <div className="flex-1 max-w-[768px] px-4 sm:px-6 py-6 space-y-6">
-          {/* Document Title Header */}
-          <div className="space-y-3 pb-2 border-b border-neutral-100">
-            <DocumentTitle
-              key={pageId}
-              workspaceId={workspaceId}
-              pageId={pageId}
-              initialTitle={initialTitle}
-              isEditable={isEditable}
-              onTitleUpdated={() => {
-                router.refresh();
-              }}
-            />
+      {/* Centered Manuscript Sheet */}
+      <div className="w-full max-w-[780px] bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-xl shadow-xs px-6 sm:px-12 pt-8 pb-16 min-h-[calc(100vh-10rem)] transition-colors duration-150 relative space-y-4">
+        {/* Parent Page Breadcrumb (if any) */}
+        {parentPage && (
+          <div className="text-xs text-[var(--text-faint)] flex items-center gap-1.5 pb-1">
+            <span>Parent:</span>
+            <a
+              href={`/workspace/${workspaceId}?page=${parentPage.id}`}
+              className="text-[var(--accent)] hover:underline font-medium"
+            >
+              {parentPage.title}
+            </a>
+          </div>
+        )}
 
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-400">
-              <span>Notion-inspired rich document editor</span>
-              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                {/* Collaborator Presence Avatar Bar */}
-                <CollaboratorAvatars
-                  awareness={awareness}
-                  currentUserId={currentUser?.id}
-                  currentUserRole={currentUser?.role}
+        {/* Document Title & Unified Sub-Header */}
+        <div className="space-y-3">
+          <DocumentTitle
+            key={pageId}
+            workspaceId={workspaceId}
+            pageId={pageId}
+            initialTitle={initialTitle}
+            isEditable={isEditable}
+            onTitleUpdated={() => {
+              router.refresh();
+            }}
+          />
+
+          {/* Sub-Header: Author & Timestamp on Left; Unified Health & Controls on Right */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-1 pb-3 border-b border-[var(--border-subtle)]">
+            {/* Metadata (Author, Date, Role) */}
+            <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--text-faint)] font-sans">
+              <span>By {authorName || "Member"}</span>
+              <span>•</span>
+              <span>{formattedDate}</span>
+              <span className="px-1.5 py-0.2 rounded text-[10px] font-mono uppercase tracking-wider bg-[var(--bg-raised)] text-[var(--text-muted)] border border-[var(--border-subtle)]">
+                {currentUser?.role || "VIEWER"}
+              </span>
+            </div>
+
+            {/* Unified Controls & Document Health Cluster */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Active Collaborators Presence */}
+              <CollaboratorAvatars
+                awareness={awareness}
+                currentUserId={currentUser?.id}
+                currentUserRole={currentUser?.role}
+              />
+
+              {/* Unified Document Health Pill (Steady Live Dot + Saved Indicator) */}
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-raised)] text-[11px] font-medium text-[var(--text-muted)] select-none">
+                <CollabStatusBadge
+                  status={collabStatus}
+                  errorMessage={collabError}
+                  onRetry={() => {
+                    if (providerRef.current) providerRef.current.connect();
+                  }}
                 />
-
-                {/* Comments Toggle Button */}
-                <button
-                  type="button"
-                  onClick={() =>
-                    setIsCommentsOpen((prev) => {
-                      const next = !prev;
-                      if (next) setIsHistoryOpen(false);
-                      return next;
-                    })
-                  }
-                  className={cn(
-                    "flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors",
-                    isCommentsOpen
-                      ? "bg-neutral-100 text-neutral-900 border-neutral-300 shadow-inner"
-                      : "bg-white text-neutral-600 border-neutral-200 hover:bg-neutral-50 hover:text-neutral-900"
-                  )}
-                  title={isCommentsOpen ? "Close comments panel" : "Open comments panel"}
-                  aria-label={isCommentsOpen ? "Close comments panel" : "Open comments panel"}
-                >
-                  <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
-                  <span>Comments</span>
-                  {commentsCount > 0 && (
-                    <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-semibold bg-neutral-200 text-neutral-800">
-                      {commentsCount}
-                    </span>
-                  )}
-                </button>
-
-                {/* Version History Toggle Button */}
-                <button
-                  type="button"
-                  onClick={() =>
-                    setIsHistoryOpen((prev) => {
-                      const next = !prev;
-                      if (next) setIsCommentsOpen(false);
-                      return next;
-                    })
-                  }
-                  className={cn(
-                    "flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors",
-                    isHistoryOpen
-                      ? "bg-neutral-100 text-neutral-900 border-neutral-300 shadow-inner"
-                      : "bg-white text-neutral-600 border-neutral-200 hover:bg-neutral-50 hover:text-neutral-900"
-                  )}
-                  title={isHistoryOpen ? "Close version history" : "Open version history"}
-                  aria-label={isHistoryOpen ? "Close version history" : "Open version history"}
-                >
-                  <Clock className="w-3.5 h-3.5 text-neutral-600" />
-                  <span>History</span>
-                </button>
-
-                {/* Document Persistence & Sync Status Badge */}
+                <span className="text-[var(--border-strong)]" aria-hidden="true">
+                  ·
+                </span>
                 <SaveStatusBadge
                   status={currentDocStatus}
                   errorMessage={saveErrorMessage || collabError || undefined}
                   onRetry={handleRetrySave}
                 />
-
-                <div className="flex items-center gap-2 border-l border-neutral-200 pl-3">
-                  <span className="text-[11px] text-neutral-400">Collaboration:</span>
-                  <CollabStatusBadge
-                    status={collabStatus}
-                    errorMessage={collabError}
-                    onRetry={() => {
-                      if (providerRef.current) {
-                        providerRef.current.connect();
-                      }
-                    }}
-                  />
-                </div>
               </div>
+
+              {/* Comments Toggle Button */}
+              <button
+                type="button"
+                onClick={() =>
+                  setIsCommentsOpen((prev) => {
+                    const next = !prev;
+                    if (next) setIsHistoryOpen(false);
+                    return next;
+                  })
+                }
+                className={cn(
+                  "flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors cursor-pointer",
+                  isCommentsOpen
+                    ? "bg-[var(--accent-light)] text-[var(--accent)] border-[var(--accent-border)] font-medium"
+                    : "bg-[var(--bg-surface)] text-[var(--text-muted)] border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                )}
+                title={isCommentsOpen ? "Close comments panel" : "Open comments panel"}
+                aria-label={isCommentsOpen ? "Close comments panel" : "Open comments panel"}
+              >
+                <MessageSquare className="w-3.5 h-3.5 text-[var(--accent)]" />
+                <span>Comments</span>
+                {commentsCount > 0 && (
+                  <span className="ml-0.5 px-1.5 py-0.2 rounded text-[10px] font-mono bg-[var(--bg-raised)] text-[var(--text-muted)]">
+                    {commentsCount}
+                  </span>
+                )}
+              </button>
+
+              {/* Version History Toggle Button */}
+              <button
+                type="button"
+                onClick={() =>
+                  setIsHistoryOpen((prev) => {
+                    const next = !prev;
+                    if (next) setIsCommentsOpen(false);
+                    return next;
+                  })
+                }
+                className={cn(
+                  "flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors cursor-pointer",
+                  isHistoryOpen
+                    ? "bg-[var(--accent-light)] text-[var(--accent)] border-[var(--accent-border)] font-medium"
+                    : "bg-[var(--bg-surface)] text-[var(--text-muted)] border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                )}
+                title={isHistoryOpen ? "Close version history" : "Open version history"}
+                aria-label={isHistoryOpen ? "Close version history" : "Open version history"}
+              >
+                <Clock className="w-3.5 h-3.5 text-[var(--text-muted)]" />
+                <span>History</span>
+              </button>
             </div>
           </div>
+        </div>
 
-          {/* Version Preview Alert Banner */}
-          {previewVersion && (
-            <div className="p-3 rounded-lg bg-amber-50 border border-amber-200/90 text-xs flex flex-wrap items-center justify-between gap-2 shadow-2xs">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-semibold text-amber-900">
-                  Viewing Historical Version:
-                </span>
-                <span className="text-amber-800">
-                  {previewVersion.label || "Saved Snapshot"} (
-                  {new Date(previewVersion.createdAt).toLocaleDateString()} at{" "}
-                  {new Date(previewVersion.createdAt).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                  )
-                </span>
-                <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-200/60 text-amber-900 font-medium">
-                  Read-Only Preview
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
+        {/* Compact Formatting Toolbar (or Read-Only Indicator) */}
+        {isEditable ? (
+          <div className="pt-1 pb-1">
+            <EditorToolbar editor={editor} disabled={false} />
+          </div>
+        ) : (
+          <div className="my-2 px-3 py-1.5 rounded-md bg-[var(--bg-raised)] border border-[var(--border-subtle)] flex items-center justify-between text-xs text-[var(--text-muted)]">
+            <div className="flex items-center gap-2 font-medium">
+              <Eye className="w-4 h-4 text-[var(--text-faint)] shrink-0" />
+              <span>
+                {currentUser?.role === "COMMENTER"
+                  ? "Commenter Mode — You can view and comment, but document editing is disabled."
+                  : "View-Only Mode — You have read-only access to this document."}
+              </span>
+            </div>
+            <span className="text-[10px] px-2 py-0.5 rounded bg-[var(--bg-hover)] border border-[var(--border-subtle)] font-mono font-medium text-[var(--text-muted)] uppercase tracking-wider shrink-0">
+              {currentUser?.role || "VIEWER"}
+            </span>
+          </div>
+        )}
+
+        {/* Version Preview Alert Banner */}
+        {previewVersion && (
+          <div className="p-3 my-2 rounded-md bg-[var(--bg-raised)] border border-[var(--border-subtle)] text-xs flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-medium text-[var(--text-primary)]">
+                Historical Version:
+              </span>
+              <span className="text-[var(--text-muted)] font-mono text-[11px]">
+                {previewVersion.label || "Snapshot"} (
+                {new Date(previewVersion.createdAt).toLocaleDateString()} at{" "}
+                {new Date(previewVersion.createdAt).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+                )
+              </span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider bg-[var(--accent-light)] text-[var(--accent)] border border-[var(--accent-border)]/40">
+                Read-Only Preview
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPreviewVersion(null)}
+                className="px-2.5 py-1 rounded-md bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] text-xs font-medium transition-colors cursor-pointer"
+              >
+                Exit Preview
+              </button>
+              {(currentUser?.role === "OWNER" || currentUser?.role === "EDITOR") && (
                 <button
                   type="button"
-                  onClick={() => setPreviewVersion(null)}
-                  className="px-2.5 py-1 rounded bg-white border border-amber-300 text-amber-900 hover:bg-amber-100/50 text-xs font-medium transition-colors"
+                  onClick={() => setRestoreTargetSnapshot(previewVersion)}
+                  className="px-2.5 py-1 rounded-md bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] text-xs font-medium flex items-center gap-1 shadow-2xs transition-colors cursor-pointer"
                 >
-                  Exit Preview
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Restore Version</span>
                 </button>
-                {(currentUser?.role === "OWNER" || currentUser?.role === "EDITOR") && (
-                  <button
-                    type="button"
-                    onClick={() => setRestoreTargetSnapshot(previewVersion)}
-                    className="px-2.5 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 text-xs font-medium flex items-center gap-1 shadow-2xs transition-colors"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                    <span>Restore This Version</span>
-                  </button>
-                )}
-              </div>
+              )}
             </div>
-          )}
+          </div>
+        )}
 
-          {/* TipTap Editor Surface or Read-Only Preview */}
-          {previewVersion ? (
-            <ReadOnlyPreview content={previewVersion.content} />
-          ) : (
-            <div className="min-h-[420px] focus-within:ring-0 editor-surface">
-              <EditorContent editor={editor} />
-            </div>
-          )}
-        </div>
+        {/* TipTap Editor Surface or Read-Only Preview */}
+        {previewVersion ? (
+          <ReadOnlyPreview content={previewVersion.content} />
+        ) : (
+          <div className="min-h-[460px] focus-within:ring-0 editor-surface">
+            <EditorContent editor={editor} />
+          </div>
+        )}
+      </div>
 
         {/* Side Drawer for Comments */}
         {isCommentsOpen && (
-          <aside className="fixed lg:sticky top-0 lg:top-12 right-0 h-screen lg:h-[calc(100vh-4rem)] z-30 shadow-lg lg:shadow-none bg-white">
+          <aside className="fixed lg:sticky top-0 lg:top-12 right-0 h-screen lg:h-[calc(100vh-4rem)] z-30 shadow-lg lg:shadow-none bg-[var(--bg-surface)] border-l border-[var(--border-subtle)]">
             <CommentPanel
               key={pageId}
               workspaceId={workspaceId}
@@ -547,7 +585,7 @@ export function RichTextEditor({
 
         {/* Side Drawer for Version History */}
         {isHistoryOpen && (
-          <aside className="fixed lg:sticky top-0 lg:top-12 right-0 h-screen lg:h-[calc(100vh-4rem)] z-30 shadow-lg lg:shadow-none bg-white">
+          <aside className="fixed lg:sticky top-0 lg:top-12 right-0 h-screen lg:h-[calc(100vh-4rem)] z-30 shadow-lg lg:shadow-none bg-[var(--bg-surface)] border-l border-[var(--border-subtle)]">
             <VersionHistoryPanel
               key={`history-${pageId}`}
               workspaceId={workspaceId}
@@ -582,149 +620,46 @@ export function RichTextEditor({
         }}
       />
 
-      {/* Notion Editor Styles Scoped to TipTap */}
+      {/* Scoped ProseMirror & Cursor Overrides */}
       <style jsx global>{`
         .editor-surface .ProseMirror {
           outline: none !important;
           min-height: 380px;
         }
 
-        /* Remote Collaboration Carets & Labels */
-        .collaboration-cursor__caret {
-          position: relative;
-          margin-left: -1px;
-          margin-right: -1px;
-          border-left: 2px solid;
-          border-right: 0px solid;
-          word-break: normal;
-          pointer-events: none;
-        }
-
-        .collaboration-cursor__label {
-          position: absolute;
-          top: -1.4em;
-          left: -2px;
-          font-size: 11px;
-          font-weight: 600;
-          line-height: 1;
-          color: #ffffff;
-          padding: 2px 6px;
-          border-radius: 4px 4px 4px 0;
-          white-space: nowrap;
-          user-select: none;
-          pointer-events: none;
-          z-index: 20;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-          font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-          letter-spacing: 0.01em;
-        }
-
-        .ProseMirror-yjs-selection {
-          opacity: 0.8;
-          border-radius: 2px;
-        }
-
-        .editor-surface .ProseMirror h1 {
-          font-size: 1.875rem;
-          line-height: 2.25rem;
-          font-weight: 700;
-          color: #37352f;
-          margin-top: 1.5rem;
-          margin-bottom: 0.5rem;
-          letter-spacing: -0.025em;
-        }
-
-        .editor-surface .ProseMirror h2 {
-          font-size: 1.5rem;
-          line-height: 2rem;
-          font-weight: 600;
-          color: #37352f;
-          margin-top: 1.25rem;
-          margin-bottom: 0.5rem;
-          letter-spacing: -0.02em;
-        }
-
+        .editor-surface .ProseMirror h1,
+        .editor-surface .ProseMirror h2,
         .editor-surface .ProseMirror h3 {
-          font-size: 1.25rem;
-          line-height: 1.75rem;
-          font-weight: 600;
-          color: #37352f;
-          margin-top: 1rem;
-          margin-bottom: 0.375rem;
+          font-family: var(--font-serif);
         }
 
         .editor-surface .ProseMirror p {
-          font-size: 0.95rem;
-          line-height: 1.7;
-          color: #37352f;
-          margin-top: 0.35rem;
-          margin-bottom: 0.35rem;
-        }
-
-        .editor-surface .ProseMirror ul {
-          list-style-type: disc;
-          padding-left: 1.5rem;
-          margin-top: 0.5rem;
-          margin-bottom: 0.5rem;
-        }
-
-        .editor-surface .ProseMirror ol {
-          list-style-type: decimal;
-          padding-left: 1.5rem;
-          margin-top: 0.5rem;
-          margin-bottom: 0.5rem;
-        }
-
-        .editor-surface .ProseMirror li {
-          margin-top: 0.2rem;
-          margin-bottom: 0.2rem;
-          line-height: 1.6;
+          color: var(--text-primary);
         }
 
         .editor-surface .ProseMirror blockquote {
-          border-left: 3px solid #dfdfde;
-          padding-left: 1rem;
-          margin-top: 0.75rem;
-          margin-bottom: 0.75rem;
-          font-style: italic;
-          color: #5a5751;
+          border-left: 2px solid var(--accent);
+          color: var(--text-muted);
         }
 
         .editor-surface .ProseMirror pre {
-          background-color: #f7f6f3;
-          border: 1px solid #e9e9e7;
-          border-radius: 0.375rem;
-          padding: 0.75rem 1rem;
-          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-          font-size: 0.8125rem;
-          color: #37352f;
-          overflow-x: auto;
-          margin-top: 0.75rem;
-          margin-bottom: 0.75rem;
+          background-color: var(--bg-raised);
+          border: 1px solid var(--border-subtle);
+          color: var(--text-primary);
         }
 
         .editor-surface .ProseMirror code {
-          background-color: #f0f0ef;
-          color: #eb5757;
-          border-radius: 0.25rem;
-          padding: 0.125rem 0.3rem;
-          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-          font-size: 0.8125rem;
+          background-color: var(--bg-raised);
+          color: var(--accent);
+          border: 1px solid var(--border-subtle);
         }
 
         .editor-surface .ProseMirror hr {
-          border: none;
-          border-top: 1px solid #e9e9e7;
-          margin-top: 1.5rem;
-          margin-bottom: 1.5rem;
+          border-top: 1px solid var(--border-subtle);
         }
 
         .editor-surface .ProseMirror p.is-editor-empty:first-child::before {
-          content: attr(data-placeholder);
-          float: left;
-          color: #9b9a97;
-          pointer-events: none;
-          height: 0;
+          color: var(--text-faint);
         }
       `}</style>
     </div>

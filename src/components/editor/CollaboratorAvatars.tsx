@@ -146,10 +146,9 @@ export function CollaboratorAvatars({
             {/* Avatar Circle with Coloured Ring */}
             <div
               tabIndex={0}
-              className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white transition-transform group-hover:scale-110 group-hover:z-30 shadow-xs ring-2 ring-white cursor-pointer"
+              className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-mono font-medium text-white transition-transform group-hover:scale-110 group-hover:z-30 ring-2 ring-[var(--bg-surface)] cursor-pointer"
               style={{
                 backgroundColor: c.color,
-                boxShadow: `0 0 0 1.5px ${c.color}`,
               }}
               aria-label={titleText}
             >
@@ -158,25 +157,25 @@ export function CollaboratorAvatars({
 
             {/* Hover Tooltip Card */}
             <div className="absolute right-0 bottom-full mb-1.5 hidden group-hover:flex flex-col items-center z-40 pointer-events-none">
-              <div className="bg-[#1f1f1f] text-white text-[11px] font-medium py-1 px-2 rounded-md shadow-lg whitespace-nowrap flex items-center gap-1.5">
+              <div className="bg-[var(--bg-surface)] text-[var(--text-primary)] text-[11px] font-medium py-1 px-2.5 rounded border border-[var(--border-strong)] shadow-md whitespace-nowrap flex items-center gap-1.5">
                 <span
                   className="w-2 h-2 rounded-full shrink-0"
                   style={{ backgroundColor: c.color }}
                   aria-hidden="true"
                 />
-                <span className="font-semibold text-neutral-100">{c.name}</span>
+                <span className="font-semibold">{c.name}</span>
                 {c.isSelf && (
-                  <span className="text-[10px] text-neutral-300 font-normal">
+                  <span className="text-[10px] text-[var(--text-faint)] font-normal">
                     (You)
                   </span>
                 )}
                 {c.role && (
-                  <span className="text-[10px] text-neutral-400 capitalize">
+                  <span className="text-[10px] text-[var(--text-muted)] capitalize">
                     • {c.role.toLowerCase()}
                   </span>
                 )}
               </div>
-              <div className="w-1.5 h-1.5 bg-[#1f1f1f] rotate-45 -mt-0.5" />
+              <div className="w-1.5 h-1.5 bg-[var(--bg-surface)] border-r border-b border-[var(--border-strong)] rotate-45 -mt-1" />
             </div>
           </div>
         );
@@ -188,18 +187,18 @@ export function CollaboratorAvatars({
           className="group relative"
           title={`${overflowCount} more collaborator${overflowCount > 1 ? "s" : ""}: ${overflowCollaborators.map((c) => c.name).join(", ")}`}
         >
-          <div className="w-6 h-6 rounded-full bg-neutral-200 text-neutral-700 text-[10px] font-bold flex items-center justify-center ring-2 ring-white shadow-xs cursor-pointer group-hover:bg-neutral-300 group-hover:scale-110 group-hover:z-30 transition-transform">
+          <div className="w-6 h-6 rounded-full bg-[var(--bg-raised)] text-[var(--text-muted)] border border-[var(--border-subtle)] text-[9px] font-mono font-medium flex items-center justify-center ring-2 ring-[var(--bg-surface)] cursor-pointer group-hover:bg-[var(--bg-hover)] group-hover:scale-110 group-hover:z-30 transition-transform">
             <span>+{overflowCount}</span>
           </div>
 
           {/* Overflow Hover Tooltip */}
           <div className="absolute right-0 bottom-full mb-1.5 hidden group-hover:flex flex-col items-center z-40 pointer-events-none">
-            <div className="bg-[#1f1f1f] text-white text-[11px] py-1 px-2.5 rounded-md shadow-lg whitespace-nowrap space-y-0.5 max-w-xs">
-              <div className="font-semibold text-neutral-200 pb-0.5 border-b border-neutral-700">
+            <div className="bg-[var(--bg-surface)] text-[var(--text-primary)] text-[11px] py-1.5 px-2.5 rounded border border-[var(--border-strong)] shadow-md whitespace-nowrap space-y-1 max-w-xs">
+              <div className="font-semibold pb-1 border-b border-[var(--border-subtle)] text-[var(--text-muted)]">
                 +{overflowCount} more collaborator{overflowCount > 1 ? "s" : ""}
               </div>
               {overflowCollaborators.map((oc) => (
-                <div key={oc.id} className="flex items-center gap-1.5 text-[10px] text-neutral-300">
+                <div key={oc.id} className="flex items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
                   <span
                     className="w-1.5 h-1.5 rounded-full"
                     style={{ backgroundColor: oc.color }}
@@ -208,7 +207,7 @@ export function CollaboratorAvatars({
                 </div>
               ))}
             </div>
-            <div className="w-1.5 h-1.5 bg-[#1f1f1f] rotate-45 -mt-0.5" />
+            <div className="w-1.5 h-1.5 bg-[var(--bg-surface)] border-r border-b border-[var(--border-strong)] rotate-45 -mt-1" />
           </div>
         </div>
       )}

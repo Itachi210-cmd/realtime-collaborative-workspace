@@ -8,6 +8,7 @@ interface DocumentTitleProps {
   pageId: string;
   initialTitle: string;
   isEditable?: boolean;
+  showStatusBadge?: boolean;
   onTitleUpdated?: (newTitle: string) => void;
   onStatusChange?: (status: SaveStatus) => void;
 }
@@ -17,6 +18,7 @@ export function DocumentTitle({
   pageId,
   initialTitle,
   isEditable = true,
+  showStatusBadge = false,
   onTitleUpdated,
   onStatusChange,
 }: DocumentTitleProps) {
@@ -124,16 +126,18 @@ export function DocumentTitle({
           onChange={handleChange}
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
-          placeholder="Untitled"
-          className="text-3xl font-bold tracking-tight text-[#37352f] w-full bg-transparent border-none outline-none focus:ring-0 placeholder:text-neutral-300 transition-colors py-1 px-0 disabled:opacity-80"
+          placeholder="Untitled Document"
+          className="font-serif-editorial text-4xl sm:text-5xl font-medium tracking-tight text-[var(--text-primary)] w-full bg-transparent border-none outline-none focus:ring-0 placeholder:text-[var(--text-faint)] placeholder:italic placeholder:font-normal transition-colors py-1 px-0 disabled:opacity-75 leading-tight"
           aria-label="Document Title"
         />
-        <div className="shrink-0 flex items-center">
-          <SaveStatusBadge
-            status={status}
-            onRetry={() => saveTitle(title)}
-          />
-        </div>
+        {(showStatusBadge || status === "error") && (
+          <div className="shrink-0 flex items-center">
+            <SaveStatusBadge
+              status={status}
+              onRetry={() => saveTitle(title)}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

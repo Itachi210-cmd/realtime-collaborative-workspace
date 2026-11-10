@@ -296,9 +296,9 @@ export function ShareDialog({
 
           {/* Invite form - strictly for OWNER */}
           {isOwner ? (
-            <form onSubmit={handleInviteSubmit} className="space-y-2 p-3 bg-[#fafafa] border border-[#e9e9e7] rounded-lg">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-[#37352f]">
-                <UserPlus className="w-3.5 h-3.5 text-blue-600" />
+            <form onSubmit={handleInviteSubmit} className="space-y-2 p-3 bg-[var(--bg-raised)] border border-[var(--border-subtle)] rounded-lg">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--text-primary)]">
+                <UserPlus className="w-3.5 h-3.5 text-[var(--accent)]" />
                 <span>Invite Registered User</span>
               </div>
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
@@ -324,7 +324,7 @@ export function ShareDialog({
                   variant="primary"
                   size="sm"
                   disabled={isSubmitting || !inviteEmail.trim()}
-                  className="shrink-0 h-8"
+                  className="shrink-0 h-8 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white border-transparent"
                 >
                   {isSubmitting ? (
                     <>
@@ -337,15 +337,15 @@ export function ShareDialog({
                 </Button>
               </div>
               {formError && (
-                <div className="flex items-center gap-1 text-[11px] text-red-600 pt-1">
+                <div className="flex items-center gap-1 text-[11px] text-red-600 dark:text-red-400 pt-1">
                   <AlertCircle className="w-3 h-3 shrink-0" />
                   <span>{formError}</span>
                 </div>
               )}
             </form>
           ) : (
-            <div className="p-2.5 rounded-lg bg-neutral-50 border border-neutral-200/80 flex items-start gap-2 text-xs text-neutral-600">
-              <Shield className="w-4 h-4 text-neutral-400 shrink-0 mt-0.5" />
+            <div className="p-2.5 rounded-lg bg-[var(--bg-raised)] border border-[var(--border-subtle)] flex items-start gap-2 text-xs text-[var(--text-muted)]">
+              <Shield className="w-4 h-4 text-[var(--text-faint)] shrink-0 mt-0.5" />
               <p>
                 Only the workspace owner can invite new collaborators or modify member roles.
               </p>
@@ -354,47 +354,47 @@ export function ShareDialog({
 
           {/* Members list */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">
+            <div className="flex items-center justify-between text-[11px] font-semibold text-[var(--text-faint)] uppercase tracking-wider">
               <span>
                 Workspace Members ({(ownerInfo ? 1 : 0) + members.length})
               </span>
-              {isLoading && <Loader2 className="w-3 h-3 animate-spin text-neutral-400" />}
+              {isLoading && <Loader2 className="w-3 h-3 animate-spin text-[var(--text-faint)]" />}
             </div>
 
             {fetchError ? (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-600 flex items-center justify-between">
+              <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-xs text-red-600 dark:text-red-400 flex items-center justify-between">
                 <span>{fetchError}</span>
                 <Button variant="ghost" size="sm" onClick={() => loadWorkspaceData()}>
                   Retry
                 </Button>
               </div>
             ) : (
-              <div className="divide-y divide-[#e9e9e7] border border-[#e9e9e7] rounded-lg overflow-hidden max-h-60 overflow-y-auto">
+              <div className="divide-y divide-[var(--border-subtle)] border border-[var(--border-subtle)] rounded-lg overflow-hidden max-h-60 overflow-y-auto">
                 {/* 1. Workspace Owner Row (Immunized against modification/removal) */}
                 {ownerInfo && (
-                  <div className="p-2.5 bg-white flex items-center justify-between gap-2">
+                  <div className="p-2.5 bg-[var(--bg-surface)] flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-7 h-7 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center text-xs font-semibold shrink-0">
+                      <div className="w-7 h-7 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-400 flex items-center justify-center text-xs font-semibold shrink-0">
                         {getInitials(ownerInfo.name, "OW")}
                       </div>
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-medium text-[#37352f] truncate">
+                          <span className="text-xs font-medium text-[var(--text-primary)] truncate">
                             {ownerInfo.name}
                           </span>
                           {currentUserId === ownerInfo.id && (
-                            <span className="text-[10px] text-neutral-400 font-normal">
+                            <span className="text-[10px] text-[var(--text-faint)] font-normal">
                               (You)
                             </span>
                           )}
                         </div>
-                        <span className="text-[11px] text-neutral-400 block truncate">
+                        <span className="text-[11px] text-[var(--text-faint)] block truncate">
                           {ownerInfo.email}
                         </span>
                       </div>
                     </div>
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200/80 shrink-0">
-                      <Crown className="w-3 h-3 text-amber-600" />
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30 shrink-0">
+                      <Crown className="w-3 h-3 text-amber-600 dark:text-amber-400" />
                       <span>Owner</span>
                     </span>
                   </div>
@@ -409,24 +409,24 @@ export function ShareDialog({
                     return (
                       <div
                         key={member.id}
-                        className="p-2.5 bg-white flex items-center justify-between gap-2 hover:bg-[#fafafa] transition-colors"
+                        className="p-2.5 bg-[var(--bg-surface)] flex items-center justify-between gap-2 hover:bg-[var(--bg-hover)] transition-colors"
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
-                          <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-semibold shrink-0">
+                          <div className="w-7 h-7 rounded-full bg-[var(--accent-light)] text-[var(--accent)] flex items-center justify-center text-xs font-semibold shrink-0 border border-[var(--accent-border)]/40">
                             {getInitials(member.name, "M")}
                           </div>
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
-                              <span className="text-xs font-medium text-[#37352f] truncate">
+                              <span className="text-xs font-medium text-[var(--text-primary)] truncate">
                                 {member.name}
                               </span>
                               {isSelf && (
-                                <span className="text-[10px] text-neutral-400 font-normal">
+                                <span className="text-[10px] text-[var(--text-faint)] font-normal">
                                   (You)
                                 </span>
                               )}
                             </div>
-                            <span className="text-[11px] text-neutral-400 block truncate">
+                            <span className="text-[11px] text-[var(--text-faint)] block truncate">
                               {member.email}
                             </span>
                           </div>
@@ -444,7 +444,7 @@ export function ShareDialog({
                               />
                               <button
                                 onClick={() => setMemberToRemove(member)}
-                                className="p-1 rounded text-neutral-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                className="p-1 rounded text-[var(--text-faint)] hover:text-red-600 hover:bg-red-500/10 transition-colors"
                                 title="Remove member"
                                 aria-label={`Remove ${member.name}`}
                               >
@@ -452,7 +452,7 @@ export function ShareDialog({
                               </button>
                             </>
                           ) : (
-                            <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-blue-50 text-[#2383e2] border border-blue-200">
+                            <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-[var(--accent-light)] text-[var(--accent)] border border-[var(--accent-border)]/40">
                               {member.role.charAt(0) + member.role.slice(1).toLowerCase()}
                             </span>
                           )}

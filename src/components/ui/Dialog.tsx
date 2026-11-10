@@ -65,7 +65,7 @@ export function Dialog({
     >
       <div
         className={cn(
-          "w-full bg-white rounded-xl border border-[#e5e7eb] shadow-lg flex flex-col max-h-[90vh] overflow-hidden text-[#37352f] animate-in zoom-in-95 duration-150",
+          "w-full bg-[var(--bg-surface)] rounded-xl border border-[var(--border-subtle)] shadow-lg flex flex-col max-h-[90vh] overflow-hidden text-[var(--text-primary)] animate-in zoom-in-95 duration-150",
           maxWidthClass,
           className
         )}
@@ -73,22 +73,22 @@ export function Dialog({
       >
         {/* Header */}
         {(title || description) && (
-          <div className="px-5 pt-5 pb-3 flex items-start justify-between border-b border-[#e9e9e7]/60">
+          <div className="px-5 pt-5 pb-3 flex items-start justify-between border-b border-[var(--border-subtle)]">
             <div className="space-y-1 pr-4">
               {title && (
-                <h3 className="text-base font-semibold tracking-tight text-[#37352f]">
+                <h3 className="text-base font-semibold tracking-tight text-[var(--text-primary)]">
                   {title}
                 </h3>
               )}
               {description && (
-                <p className="text-xs text-neutral-500 leading-normal">
+                <p className="text-xs text-[var(--text-muted)] leading-normal">
                   {description}
                 </p>
               )}
             </div>
             <button
               onClick={onClose}
-              className="p-1 rounded-md text-neutral-400 hover:text-neutral-700 hover:bg-[#efefed] transition-colors"
+              className="p-1 rounded-md text-[var(--text-faint)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
               aria-label="Close dialog"
             >
               <X className="w-4 h-4" />
@@ -97,11 +97,11 @@ export function Dialog({
         )}
 
         {/* Content */}
-        <div className="px-5 py-4 overflow-y-auto flex-1 text-sm">{children}</div>
+        <div className="px-5 py-4 overflow-y-auto flex-1 text-sm text-[var(--text-primary)]">{children}</div>
 
         {/* Footer */}
         {footer && (
-          <div className="px-5 py-3 border-t border-[#e9e9e7] bg-[#fbfbfa] flex items-center justify-end gap-2">
+          <div className="px-5 py-3 border-t border-[var(--border-subtle)] bg-[var(--bg-raised)] flex items-center justify-end gap-2">
             {footer}
           </div>
         )}

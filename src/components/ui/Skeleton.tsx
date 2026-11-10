@@ -9,7 +9,7 @@ export function Skeleton({ className, ...props }: SkeletonProps) {
   return (
     <div
       className={cn(
-        "animate-pulse rounded bg-[#efefed] transition-colors",
+        "animate-pulse rounded bg-[var(--bg-hover)] transition-colors",
         className
       )}
       {...props}

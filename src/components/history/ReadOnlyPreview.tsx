@@ -34,7 +34,7 @@ export function ReadOnlyPreview({ content }: ReadOnlyPreviewProps) {
   if (!editor) return null;
 
   return (
-    <div className="min-h-[420px] focus-within:ring-0 editor-surface read-only-preview opacity-95">
+    <div className="min-h-[460px] focus-within:ring-0 editor-surface read-only-preview select-text">
       <EditorContent editor={editor} />
     </div>
   );

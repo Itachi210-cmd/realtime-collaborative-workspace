@@ -136,23 +136,23 @@ export function CommentItem({
     <>
       <div
         className={cn(
-          "group relative p-3 rounded-lg border transition-colors",
+          "group relative p-3 rounded-md border transition-colors text-left",
           isResolved
-            ? "bg-neutral-50/70 border-neutral-200/60 opacity-80"
-            : "bg-white border-[#e9e9e7] hover:border-[#d0d0ce]"
+            ? "bg-[var(--bg-raised)]/60 border-[var(--border-subtle)] opacity-70"
+            : "bg-[var(--bg-surface)] border border-[var(--border-subtle)] hover:border-[var(--border-strong)]"
         )}
       >
         {/* Comment Header */}
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 font-semibold text-[10px] flex items-center justify-center shrink-0">
+            <div className="w-5 h-5 rounded-full bg-[var(--accent-light)] text-[var(--accent)] font-semibold text-[9px] flex items-center justify-center shrink-0 border border-[var(--accent-border)]/40">
               {initials}
             </div>
             <div className="min-w-0">
-              <span className="text-xs font-semibold text-[#37352f] truncate block">
+              <span className="text-xs font-medium text-[var(--text-primary)] truncate block leading-tight">
                 {comment.author?.name || "Author"}
               </span>
-              <div className="flex items-center gap-1.5 text-[10px] text-neutral-400">
+              <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-faint)] mt-0.5">
                 <span>{formattedDate}</span>
                 {isEdited && <span>• (edited)</span>}
               </div>
@@ -160,7 +160,7 @@ export function CommentItem({
           </div>
 
           {/* Right Action Icons: Resolve toggle + Menu */}
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex items-center gap-0.5 shrink-0">
             {canResolve && (
               <button
                 onClick={handleToggleResolveClick}
@@ -168,8 +168,8 @@ export function CommentItem({
                 className={cn(
                   "p-1 rounded transition-colors",
                   isResolved
-                    ? "text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
-                    : "text-neutral-400 hover:text-emerald-600 hover:bg-neutral-100"
+                    ? "text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 hover:bg-emerald-500/10"
+                    : "text-[var(--text-faint)] hover:text-emerald-600 hover:bg-[var(--bg-hover)]"
                 )}
                 title={isResolved ? "Mark as unresolved" : "Mark as resolved"}
                 aria-label={isResolved ? "Mark as unresolved" : "Mark as resolved"}
@@ -188,7 +188,7 @@ export function CommentItem({
               <div className="relative">
                 <button
                   onClick={() => setShowMenu((prev) => !prev)}
-                  className="p-1 rounded text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 transition-colors"
+                  className="p-1 rounded text-[var(--text-faint)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
                   aria-label="Comment options"
                 >
                   <MoreVertical className="w-3.5 h-3.5" />
@@ -200,7 +200,7 @@ export function CommentItem({
                       className="fixed inset-0 z-20"
                       onClick={() => setShowMenu(false)}
                     />
-                    <div className="absolute right-0 top-full mt-1 z-30 w-28 bg-white border border-[#e9e9e7] rounded-md shadow-md py-1 text-xs">
+                    <div className="absolute right-0 top-full mt-1 z-30 w-28 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-md shadow-md py-1 text-xs">
                       {canEdit && (
                         <button
                           onClick={() => {
@@ -208,7 +208,7 @@ export function CommentItem({
                             setEditText(comment.body);
                             setIsEditing(true);
                           }}
-                          className="w-full px-2.5 py-1 text-left flex items-center gap-1.5 text-neutral-600 hover:bg-neutral-100 hover:text-[#37352f]"
+                          className="w-full px-2.5 py-1 text-left flex items-center gap-1.5 text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"
                         >
                           <Edit2 className="w-3 h-3" />
                           <span>Edit</span>
@@ -220,7 +220,7 @@ export function CommentItem({
                             setShowMenu(false);
                             setShowDeleteConfirm(true);
                           }}
-                          className="w-full px-2.5 py-1 text-left flex items-center gap-1.5 text-red-600 hover:bg-red-50"
+                          className="w-full px-2.5 py-1 text-left flex items-center gap-1.5 text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors"
                         >
                           <Trash2 className="w-3 h-3" />
                           <span>Delete</span>
@@ -246,19 +246,19 @@ export function CommentItem({
               disabled={isSavingEdit}
               maxLength={2000}
               rows={3}
-              className="w-full text-xs p-2 rounded border border-[#e5e7eb] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-[#2383e2] resize-none"
+              className="w-full text-xs p-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-app)] text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] focus:border-[var(--accent)] resize-none"
               placeholder="Edit your comment..."
             />
-            <div className="flex items-center justify-between text-[10px] text-neutral-400">
-              <span>{editText.length} / 2000</span>
-              {editError && <span className="text-red-600">{editError}</span>}
+            <div className="flex items-center justify-between text-[10px] text-[var(--text-faint)]">
+              <span className="font-mono">{editText.length} / 2000</span>
+              {editError && <span className="text-red-600 dark:text-red-400">{editError}</span>}
               <div className="flex items-center gap-1.5">
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => setIsEditing(false)}
                   disabled={isSavingEdit}
-                  className="h-6 px-2 text-[11px]"
+                  className="h-6 px-2 text-[11px] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
                 >
                   <X className="w-3 h-3 mr-1" />
                   <span>Cancel</span>
@@ -268,7 +268,7 @@ export function CommentItem({
                   size="sm"
                   onClick={handleSaveEdit}
                   disabled={isSavingEdit || !editText.trim()}
-                  className="h-6 px-2 text-[11px]"
+                  className="h-6 px-2 text-[11px] bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white border-transparent"
                 >
                   {isSavingEdit ? (
                     <Loader2 className="w-3 h-3 animate-spin mr-1" />
@@ -281,14 +281,14 @@ export function CommentItem({
             </div>
           </div>
         ) : (
-          <div className="mt-1.5 text-xs text-[#37352f] whitespace-pre-wrap break-words leading-relaxed">
+          <div className="mt-1.5 text-xs text-[var(--text-primary)] whitespace-pre-wrap break-words leading-relaxed">
             {comment.body}
           </div>
         )}
 
         {/* Resolved Badge */}
         {isResolved && (
-          <div className="mt-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[10px] font-medium border border-emerald-200">
+          <div className="mt-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-mono border border-emerald-500/20">
             <CheckCircle2 className="w-2.5 h-2.5" />
             <span>Resolved</span>
           </div>

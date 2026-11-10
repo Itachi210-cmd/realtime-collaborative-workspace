@@ -8,6 +8,7 @@ import {
   Plus,
   Loader2,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -20,25 +21,7 @@ import {
 
 interface WorkspaceSwitcherProps {
   currentWorkspaceId?: string;
-  onWorkspaceChange?: (workspaceId: string) => void;
-}
-
-const AVATAR_COLORS = [
-  "bg-[#2383e2]",
-  "bg-purple-600",
-  "bg-emerald-600",
-  "bg-amber-600",
-  "bg-rose-600",
-  "bg-indigo-600",
-];
-
-function getColorForId(id: string): string {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) {
-    hash = (hash << 5) - hash + id.charCodeAt(i);
-  }
-  const index = Math.abs(hash) % AVATAR_COLORS.length;
-  return AVATAR_COLORS[index];
+  onWorkspaceChange?: (workspaceId: string, role?: string) => void;
 }
 
 export function WorkspaceSwitcher({
@@ -61,8 +44,17 @@ export function WorkspaceSwitcher({
       .then((list) => {
         if (isMounted) {
           setWorkspaces(list);
-          if (list.length > 0 && !currentWorkspaceId) {
-            setSelectedId(list[0].id);
+          if (list.length > 0) {
+            const savedId =
+              typeof window !== "undefined"
+                ? localStorage.getItem("collab-active-workspace-id")
+                : null;
+            const target =
+              list.find((w) => w.id === (currentWorkspaceId || savedId)) || list[0];
+            setSelectedId(target.id);
+            if (!currentWorkspaceId) {
+              onWorkspaceChange?.(target.id, target.role);
+            }
           }
           setIsLoading(false);
         }
@@ -74,7 +66,7 @@ export function WorkspaceSwitcher({
     return () => {
       isMounted = false;
     };
-  }, [currentWorkspaceId]);
+  }, [currentWorkspaceId, onWorkspaceChange]);
 
   const activeId = currentWorkspaceId || selectedId;
   const currentWorkspace =
@@ -83,7 +75,10 @@ export function WorkspaceSwitcher({
   const handleSelectWorkspace = (ws: WorkspaceSummary) => {
     setSelectedId(ws.id);
     setIsDropdownOpen(false);
-    onWorkspaceChange?.(ws.id);
+    try {
+      localStorage.setItem("collab-active-workspace-id", ws.id);
+    } catch {}
+    onWorkspaceChange?.(ws.id, ws.role);
     router.push(`/workspace/${ws.id}`);
     addToast({
       message: `Switched to ${ws.name}`,
@@ -103,6 +98,10 @@ export function WorkspaceSwitcher({
       setSelectedId(newWs.id);
       setIsCreateModalOpen(false);
       setNewWorkspaceName("");
+      try {
+        localStorage.setItem("collab-active-workspace-id", newWs.id);
+      } catch {}
+      onWorkspaceChange?.(newWs.id, newWs.role);
       router.push(`/workspace/${newWs.id}`);
 
       addToast({
@@ -125,37 +124,32 @@ export function WorkspaceSwitcher({
   const avatarLetter = currentWorkspace
     ? currentWorkspace.name.trim().charAt(0).toUpperCase()
     : "W";
-  const avatarColor = currentWorkspace
-    ? getColorForId(currentWorkspace.id)
-    : "bg-[#2383e2]";
 
   return (
     <div className="relative w-full">
       {/* Switcher Header Pill */}
       <button
         onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-        className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-[#efefed] text-left cursor-pointer transition-colors w-full border border-transparent hover:border-[#e9e9e7]"
+        className="flex items-center gap-2.5 px-2 py-1.5 rounded-md hover:bg-[var(--bg-hover)] text-left cursor-pointer transition-colors w-full border border-transparent hover:border-[var(--border-subtle)]"
         aria-haspopup="true"
         aria-expanded={isDropdownOpen}
       >
-        <div
-          className={`w-6 h-6 rounded-md ${avatarColor} text-white flex items-center justify-center text-xs font-semibold shrink-0`}
-        >
+        <div className="w-6 h-6 rounded-md bg-[var(--accent-light)] text-[var(--accent)] border border-[var(--accent-border)]/40 flex items-center justify-center text-xs font-semibold shrink-0">
           {avatarLetter}
         </div>
         <div className="flex flex-col min-w-0 flex-1">
-          <span className="text-xs font-semibold text-[#37352f] truncate leading-tight">
+          <span className="text-xs font-medium text-[var(--text-primary)] truncate leading-tight">
             {isLoading
               ? "Loading workspaces..."
               : currentWorkspace?.name || "Select Workspace"}
           </span>
-          <span className="text-[10px] text-neutral-400 truncate leading-none mt-0.5">
+          <span className="text-[10px] text-[var(--text-faint)] truncate leading-none mt-0.5">
             {currentWorkspace
               ? `${currentWorkspace.role} • ${currentWorkspace.membersCount} Member${currentWorkspace.membersCount === 1 ? "" : "s"}`
               : "No workspace"}
           </span>
         </div>
-        <ChevronDown className="w-3.5 h-3.5 text-neutral-400 shrink-0 ml-1" />
+        <ChevronDown className="w-3.5 h-3.5 text-[var(--text-faint)] shrink-0 ml-1" />
       </button>
 
       {/* Dropdown Menu */}
@@ -165,56 +159,65 @@ export function WorkspaceSwitcher({
             className="fixed inset-0 z-30"
             onClick={() => setIsDropdownOpen(false)}
           />
-          <div className="absolute top-full left-0 mt-1.5 w-64 bg-white border border-[#e5e7eb] rounded-xl shadow-lg z-40 p-1.5 text-xs text-[#37352f] animate-in fade-in-50 zoom-in-95 duration-100">
-            <div className="px-2.5 py-1.5 text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">
-              Switch Workspace
+          <div className="absolute top-full left-0 mt-1.5 w-64 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg shadow-md z-40 p-1 text-xs text-[var(--text-primary)] animate-in fade-in-50 duration-100">
+            <div className="px-2.5 py-1.5 text-[11px] font-medium text-[var(--text-muted)]">
+              Workspaces
             </div>
 
             <div className="space-y-0.5 max-h-60 overflow-y-auto">
               {workspaces.map((ws) => {
                 const isSelected = ws.id === selectedId;
-                const wsColor = getColorForId(ws.id);
                 const wsLetter = ws.name.trim().charAt(0).toUpperCase();
 
                 return (
                   <button
                     key={ws.id}
                     onClick={() => handleSelectWorkspace(ws)}
-                    className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg hover:bg-[#f7f7f5] transition-colors text-left"
+                    className={cn(
+                      "w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-md transition-colors text-left",
+                      isSelected
+                        ? "bg-[var(--bg-hover)] text-[var(--text-primary)]"
+                        : "hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                    )}
                   >
-                    <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-center gap-2.5 min-w-0">
                       <div
-                        className={`w-5 h-5 rounded ${wsColor} text-white flex items-center justify-center text-[11px] font-semibold shrink-0`}
+                        className={cn(
+                          "w-5 h-5 rounded flex items-center justify-center text-[10px] font-semibold shrink-0 border",
+                          isSelected
+                            ? "bg-[var(--accent-light)] text-[var(--accent)] border-[var(--accent-border)]/40"
+                            : "bg-[var(--bg-raised)] text-[var(--text-muted)] border-[var(--border-subtle)]"
+                        )}
                       >
                         {wsLetter}
                       </div>
                       <div className="flex flex-col min-w-0">
-                        <span className="font-medium text-[#37352f] truncate">
+                        <span className="font-medium text-[var(--text-primary)] truncate">
                           {ws.name}
                         </span>
-                        <span className="text-[10px] text-neutral-400">
+                        <span className="text-[10px] text-[var(--text-faint)]">
                           {ws.role} • {ws.membersCount} member{ws.membersCount === 1 ? "" : "s"}
                         </span>
                       </div>
                     </div>
                     {isSelected && (
-                      <Check className="w-3.5 h-3.5 text-[#2383e2] shrink-0" />
+                      <Check className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
                     )}
                   </button>
                 );
               })}
             </div>
 
-            <div className="pt-1.5 mt-1 border-t border-[#e9e9e7]">
+            <div className="pt-1 mt-1 border-t border-[var(--border-subtle)]">
               <button
                 onClick={() => {
                   setIsDropdownOpen(false);
                   setIsCreateModalOpen(true);
                 }}
-                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md hover:bg-[#efefed] text-neutral-600 hover:text-[#37352f] transition-colors"
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
               >
-                <Plus className="w-3.5 h-3.5 text-neutral-500" />
-                <span>Create New Workspace</span>
+                <Plus className="w-3.5 h-3.5 text-[var(--text-faint)]" />
+                <span>Create workspace</span>
               </button>
             </div>
           </div>

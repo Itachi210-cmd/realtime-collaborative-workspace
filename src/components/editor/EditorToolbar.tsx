@@ -47,9 +47,9 @@ export function EditorToolbar({ editor, disabled = false }: EditorToolbarProps) 
 
   if (!editor) {
     return (
-      <div className="sticky top-0 z-10 -mx-4 -mt-4 px-4 py-2 bg-white/95 backdrop-blur-xs border-b border-[#e9e9e7] flex items-center justify-between gap-2 select-none">
-        <div className="flex items-center gap-0.5 overflow-x-auto py-0.5 opacity-50">
-          <span className="text-xs text-neutral-400">Loading editor tools...</span>
+      <div className="sticky top-2 z-20 w-fit mx-auto px-3 py-1 bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-xs rounded-lg flex items-center justify-between gap-2 select-none transition-colors duration-150">
+        <div className="flex items-center gap-0.5 overflow-x-auto py-0.5 opacity-60">
+          <span className="text-xs text-[var(--text-faint)]">Loading editor tools...</span>
         </div>
       </div>
     );
@@ -87,39 +87,39 @@ export function EditorToolbar({ editor, disabled = false }: EditorToolbarProps) 
 
   const getButtonClass = (isActive: boolean, canExecute: boolean = true) => {
     const base =
-      "p-1.5 rounded transition-colors text-xs flex items-center justify-center focus:outline-none";
+      "p-1.5 rounded text-xs flex items-center justify-center focus:outline-none transition-colors";
     if (disabled || !canExecute) {
-      return `${base} text-neutral-300 cursor-not-allowed opacity-50`;
+      return `${base} text-[var(--text-faint)] cursor-not-allowed opacity-40`;
     }
     if (isActive) {
-      return `${base} bg-[#e3e2e0] text-[#37352f] font-medium shadow-xs`;
+      return `${base} bg-[var(--accent-light)] text-[var(--accent)] border border-[var(--accent-border)]/40 font-medium`;
     }
-    return `${base} text-neutral-600 hover:bg-[#efefed] hover:text-[#37352f] cursor-pointer`;
+    return `${base} text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] cursor-pointer`;
   };
 
   // Safe checks for undo/redo availability (evaluates Yjs Collaboration UndoManager via TipTap commands)
   const canUndo = Boolean(
     !disabled &&
-      typeof editor.can === "function" &&
-      (() => {
-        try {
-          return Boolean(editor.can().undo());
-        } catch {
-          return false;
-        }
-      })()
+    typeof editor.can === "function" &&
+    (() => {
+      try {
+        return Boolean(editor.can().undo());
+      } catch {
+        return false;
+      }
+    })()
   );
 
   const canRedo = Boolean(
     !disabled &&
-      typeof editor.can === "function" &&
-      (() => {
-        try {
-          return Boolean(editor.can().redo());
-        } catch {
-          return false;
-        }
-      })()
+    typeof editor.can === "function" &&
+    (() => {
+      try {
+        return Boolean(editor.can().redo());
+      } catch {
+        return false;
+      }
+    })()
   );
 
   const handleUndo = () => {
@@ -143,9 +143,9 @@ export function EditorToolbar({ editor, disabled = false }: EditorToolbarProps) 
   };
 
   return (
-    <div className="sticky top-0 z-10 -mx-4 -mt-4 px-4 py-2 bg-white/95 backdrop-blur-xs border-b border-[#e9e9e7] flex flex-wrap items-center justify-between gap-2 select-none">
-      <div className="flex items-center gap-0.5 overflow-x-auto py-0.5">
-        {/* Headings */}
+    <div className="sticky top-2 z-20 w-fit mx-auto px-2 py-1 bg-[var(--bg-surface)]/95 backdrop-blur-md border border-[var(--border-subtle)] shadow-xs rounded-lg flex flex-wrap items-center justify-between gap-1 select-none transition-colors duration-150">
+      <div className="flex items-center gap-0.5 overflow-x-auto py-0.5 scrollbar-thin">
+        {/* Section 1: Headings */}
         <button
           type="button"
           title="Heading 1 (Ctrl+Alt+1)"
@@ -174,9 +174,9 @@ export function EditorToolbar({ editor, disabled = false }: EditorToolbarProps) 
           <Heading3 className="w-3.5 h-3.5" />
         </button>
 
-        <span className="w-px h-4 bg-neutral-200 mx-1" aria-hidden="true" />
+        <span className="w-px h-3.5 bg-[var(--border-subtle)] mx-1 shrink-0" aria-hidden="true" />
 
-        {/* Inline Marks */}
+        {/* Section 2: Inline Formatting */}
         <button
           type="button"
           title="Bold (Ctrl+B)"
@@ -213,10 +213,23 @@ export function EditorToolbar({ editor, disabled = false }: EditorToolbarProps) 
         >
           <Strikethrough className="w-3.5 h-3.5" />
         </button>
+        <button
+          type="button"
+          title={editor.isActive("link") ? "Remove link" : "Add link (Ctrl+K)"}
+          disabled={disabled}
+          onClick={openLinkDialog}
+          className={getButtonClass(editor.isActive("link"))}
+        >
+          {editor.isActive("link") ? (
+            <Unlink className="w-3.5 h-3.5 text-[var(--accent)]" />
+          ) : (
+            <Link2 className="w-3.5 h-3.5" />
+          )}
+        </button>
 
-        <span className="w-px h-4 bg-neutral-200 mx-1" aria-hidden="true" />
+        <span className="w-px h-3.5 bg-[var(--border-subtle)] mx-1 shrink-0" aria-hidden="true" />
 
-        {/* Lists & Blocks */}
+        {/* Section 3: Lists & Blocks */}
         <button
           type="button"
           title="Bullet list (Ctrl+Shift+8)"
@@ -263,26 +276,9 @@ export function EditorToolbar({ editor, disabled = false }: EditorToolbarProps) 
           <Minus className="w-3.5 h-3.5" />
         </button>
 
-        <span className="w-px h-4 bg-neutral-200 mx-1" aria-hidden="true" />
+        <span className="w-px h-3.5 bg-[var(--border-subtle)] mx-1 shrink-0" aria-hidden="true" />
 
-        {/* Link */}
-        <button
-          type="button"
-          title={editor.isActive("link") ? "Remove link" : "Add link (Ctrl+K)"}
-          disabled={disabled}
-          onClick={openLinkDialog}
-          className={getButtonClass(editor.isActive("link"))}
-        >
-          {editor.isActive("link") ? (
-            <Unlink className="w-3.5 h-3.5 text-blue-600" />
-          ) : (
-            <Link2 className="w-3.5 h-3.5" />
-          )}
-        </button>
-
-        <span className="w-px h-4 bg-neutral-200 mx-1" aria-hidden="true" />
-
-        {/* History */}
+        {/* Section 4: History */}
         <button
           type="button"
           title="Undo (Ctrl+Z)"
@@ -307,7 +303,7 @@ export function EditorToolbar({ editor, disabled = false }: EditorToolbarProps) 
       {showLinkInput && (
         <form
           onSubmit={handleLinkSubmit}
-          className="absolute left-4 top-11 z-20 flex items-center gap-1.5 p-1.5 bg-white rounded-md shadow-lg border border-neutral-200 text-xs"
+          className="absolute left-1/2 -translate-x-1/2 top-11 z-30 flex items-center gap-1.5 p-1.5 bg-[var(--bg-surface)] rounded-md shadow-md border border-[var(--border-strong)] text-xs"
         >
           <input
             type="text"
@@ -315,18 +311,18 @@ export function EditorToolbar({ editor, disabled = false }: EditorToolbarProps) 
             value={linkUrl}
             onChange={(e) => setLinkUrl(e.target.value)}
             autoFocus
-            className="px-2 py-1 border border-neutral-200 rounded text-xs text-[#37352f] focus:outline-none focus:border-[#2383e2] w-64"
+            className="px-2 py-1 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] w-64"
           />
           <button
             type="submit"
-            className="px-2.5 py-1 bg-[#2383e2] text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors"
+            className="px-2.5 py-1 bg-[var(--accent)] text-white rounded text-xs font-medium hover:bg-[var(--accent-hover)] transition-colors"
           >
             Apply
           </button>
           <button
             type="button"
             onClick={() => setShowLinkInput(false)}
-            className="px-2 py-1 text-neutral-500 hover:text-neutral-700 text-xs"
+            className="px-2 py-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] text-xs"
           >
             Cancel
           </button>

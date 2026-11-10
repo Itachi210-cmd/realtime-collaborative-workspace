@@ -1,174 +1,455 @@
-import React from "react";
+"use client";
+
+import React, { useState, useEffect, useSyncExternalStore } from "react";
 import Link from "next/link";
 import {
   FileText,
-  LayoutDashboard,
-  LogIn,
-  UserPlus,
+  Users,
+  History,
+  MessageSquare,
+  Shield,
+  Zap,
   ArrowRight,
-  Sparkles,
+  Sun,
+  Moon,
+  Menu,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 
-export default function HomePage() {
-  const routes = [
-    {
-      title: "Workspace Dashboard",
-      path: "/dashboard",
-      description: "Manage workspaces, recent documents, search, and member roles.",
-      icon: LayoutDashboard,
-      badge: "Core UI Shell",
-    },
-    {
-      title: "Document Canvas",
-      path: "/workspace/ws-main",
-      description: "Editor shell, toolbar, presence avatars, and document layout.",
-      icon: FileText,
-      badge: "Editor Route",
-    },
-    {
-      title: "Sign In",
-      path: "/login",
-      description: "User authentication gateway (credentials and sessions).",
-      icon: LogIn,
-      badge: "Auth Route",
-    },
-    {
-      title: "Create Account",
-      path: "/signup",
-      description: "Registration entry point for new workspace team members.",
-      icon: UserPlus,
-      badge: "Auth Route",
-    },
-  ];
+const emptySubscribe = () => () => {};
+const themeListeners = new Set<() => void>();
+function subscribeTheme(callback: () => void) {
+  themeListeners.add(callback);
+  return () => {
+    themeListeners.delete(callback);
+  };
+}
 
-  const techStack = [
-    { name: "Next.js (App Router)", category: "Frontend & API" },
-    { name: "TypeScript", category: "Type Safety" },
-    { name: "Tailwind CSS", category: "Notion Minimal Design" },
-    { name: "PostgreSQL & Prisma", category: "Relational Persistence" },
-    { name: "Yjs (CRDT)", category: "Conflict-Free Sync" },
-    { name: "y-websocket", category: "Real-Time Transport" },
-    { name: "Redis", category: "Multi-Instance Scaling" },
-    { name: "TipTap", category: "Rich-Text Engine" },
+function getThemeSnapshot(): "light" | "dark" {
+  if (typeof window === "undefined") return "light";
+  try {
+    const saved = localStorage.getItem("collab-theme") as "light" | "dark" | null;
+    if (saved === "light" || saved === "dark") return saved;
+    if (window.matchMedia("(prefers-color-scheme: dark)").matches) return "dark";
+  } catch {}
+  return "light";
+}
+
+function getServerThemeSnapshot(): "light" | "dark" {
+  return "light";
+}
+
+export default function HomePage() {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
+  const theme = useSyncExternalStore(subscribeTheme, getThemeSnapshot, getServerThemeSnapshot);
+
+  useEffect(() => {
+    if (!mounted) return;
+    document.documentElement.setAttribute("data-theme", theme);
+    if (theme === "dark") {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  }, [theme, mounted]);
+
+  const handleToggleTheme = () => {
+    const next = theme === "light" ? "dark" : "light";
+    try {
+      localStorage.setItem("collab-theme", next);
+    } catch {}
+    themeListeners.forEach((l) => l());
+  };
+
+  const coreFeatures = [
+    {
+      title: "Real-Time Collaborative Editing",
+      description:
+        "Sub-millisecond synchronization ensures concurrent keystrokes merge seamlessly without overwrite conflicts or data loss.",
+      icon: Zap,
+    },
+    {
+      title: "Editorial Manuscript Canvas",
+      description:
+        "A distraction-free writing surface calibrated to a 65–75 character reading measure with refined typography and floating controls.",
+      icon: FileText,
+    },
+    {
+      title: "Comments & Marginalia",
+      description:
+        "Contextual feedback anchored directly to text, supporting threaded discussions, inline replies, and resolved status tracking.",
+      icon: MessageSquare,
+    },
+    {
+      title: "Archival Version History",
+      description:
+        "Named snapshots and automated recovery backups allow instant side-by-side preview and safe document restoration at any point.",
+      icon: History,
+    },
+    {
+      title: "Collaborator Presence & Awareness",
+      description:
+        "Real-time cursor indicators, live user avatar clusters, and continuous connection health monitoring keep teams in lockstep.",
+      icon: Users,
+    },
+    {
+      title: "Role-Based Access Governance",
+      description:
+        "Precise permissions for Workspace Owners, Editors, and Viewers with secure, tokenized link sharing.",
+      icon: Shield,
+    },
   ];
 
   return (
-    <div className="min-h-screen bg-white text-[#37352f] flex flex-col">
-      {/* Top Bar */}
-      <header className="h-14 border-b border-[#e9e9e7] px-6 flex items-center justify-between bg-white/80 backdrop-blur-xs sticky top-0 z-20">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-md bg-[#2383e2] text-white flex items-center justify-center font-bold text-xs">
-            W
-          </div>
-          <span className="font-semibold text-sm tracking-tight text-[#37352f]">
-            CollabWorkspace
-          </span>
-          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-neutral-100 text-neutral-600 border border-neutral-200">
-            Phase 1
-          </span>
+    <div className="min-h-screen bg-[var(--bg-app)] text-[var(--text-primary)] flex flex-col font-sans transition-colors duration-150">
+      {/* 1. Global Navigation */}
+      <header className="h-14 border-b border-[var(--border-subtle)] px-4 sm:px-8 flex items-center justify-between bg-[var(--bg-surface)]/90 backdrop-blur-xs sticky top-0 z-30">
+        <div className="flex items-center gap-3">
+          <Link href="/" className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-md bg-[var(--accent-light)] text-[var(--accent)] border border-[var(--accent-border)]/40 flex items-center justify-center font-mono text-xs font-semibold">
+              W
+            </div>
+            <span className="font-medium text-sm tracking-tight text-[var(--text-primary)]">
+              CollabWorkspace
+            </span>
+          </Link>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Desktop Navigation Links */}
+        <nav className="hidden md:flex items-center gap-6 text-xs text-[var(--text-muted)] font-medium">
+          <a href="#features" className="hover:text-[var(--text-primary)] transition-colors">
+            Features
+          </a>
+          <a href="#preview" className="hover:text-[var(--text-primary)] transition-colors">
+            Workspace Preview
+          </a>
+          <Link href="/dashboard" className="hover:text-[var(--text-primary)] transition-colors">
+            Dashboard
+          </Link>
+        </nav>
+
+        {/* Desktop Actions */}
+        <div className="hidden sm:flex items-center gap-2">
+          {mounted && (
+            <button
+              onClick={handleToggleTheme}
+              className="p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] transition-colors cursor-pointer"
+              aria-label="Toggle theme"
+            >
+              {theme === "dark" ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+            </button>
+          )}
           <Link href="/login">
-            <Button variant="ghost" size="sm">
-              Sign In
+            <Button variant="ghost" size="sm" className="text-xs">
+              Sign in
             </Button>
           </Link>
-          <Link href="/dashboard">
-            <Button variant="primary" size="sm">
-              Open App Shell
+          <Link href="/signup">
+            <Button variant="primary" size="sm" className="text-xs shadow-2xs">
+              Get started
             </Button>
           </Link>
+        </div>
+
+        {/* Mobile Menu Button */}
+        <div className="flex items-center gap-2 sm:hidden">
+          {mounted && (
+            <button
+              onClick={handleToggleTheme}
+              className="p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]"
+              aria-label="Toggle theme"
+            >
+              {theme === "dark" ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+            </button>
+          )}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+            aria-label="Toggle mobile menu"
+          >
+            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
         </div>
       </header>
 
-      {/* Hero Section */}
-      <main className="flex-1 max-w-4xl mx-auto w-full px-6 py-12 space-y-12">
-        <div className="space-y-4 text-center sm:text-left">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 border border-blue-100 text-[#2383e2] text-xs font-medium">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Internship Project Blueprint Implementation</span>
+      {/* Mobile Menu Dropdown */}
+      {mobileMenuOpen && (
+        <div className="sm:hidden border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-3 space-y-2">
+          <a
+            href="#features"
+            onClick={() => setMobileMenuOpen(false)}
+            className="block py-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+          >
+            Features
+          </a>
+          <a
+            href="#preview"
+            onClick={() => setMobileMenuOpen(false)}
+            className="block py-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+          >
+            Workspace Preview
+          </a>
+          <Link
+            href="/dashboard"
+            onClick={() => setMobileMenuOpen(false)}
+            className="block py-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+          >
+            Dashboard
+          </Link>
+          <div className="pt-2 flex flex-col gap-2 border-t border-[var(--border-subtle)]">
+            <Link href="/login" onClick={() => setMobileMenuOpen(false)}>
+              <Button variant="secondary" size="sm" className="w-full">
+                Sign in
+              </Button>
+            </Link>
+            <Link href="/signup" onClick={() => setMobileMenuOpen(false)}>
+              <Button variant="primary" size="sm" className="w-full">
+                Get started
+              </Button>
+            </Link>
           </div>
-          <h1 className="text-3xl sm:text-5xl font-bold tracking-tight text-[#37352f] leading-tight">
-            Real-Time Collaborative Workspace
-          </h1>
-          <p className="text-base sm:text-lg text-neutral-600 max-w-2xl leading-relaxed">
-            A Notion/Figma-inspired collaborative workspace featuring CRDT-based rich-text editing, live presence indicators, role-based access control, and PostgreSQL persistence.
-          </p>
+        </div>
+      )}
+
+      {/* 2. Hero Section */}
+      <section className="pt-16 pb-12 sm:pt-24 sm:pb-16 px-4 sm:px-8 max-w-4xl mx-auto text-center space-y-6">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[var(--bg-raised)] border border-[var(--border-subtle)] text-[11px] font-mono text-[var(--text-muted)]">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span>Real-time collaborative workspace</span>
         </div>
 
-        {/* Phase 1 Verification Routes Grid */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">
-              Phase 1 Placeholder Routes
-            </h2>
-            <span className="text-xs text-neutral-400">All 4 routes verified &amp; navigable</span>
+        <h1 className="text-3xl sm:text-5xl lg:text-6xl font-serif font-normal text-[var(--text-primary)] tracking-tight leading-[1.15]">
+          An editorial workspace for thoughtful, real-time collaboration.
+        </h1>
+
+        <p className="text-sm sm:text-base text-[var(--text-muted)] max-w-2xl mx-auto leading-relaxed">
+          Draft, refine, and organize long-form documents together. Built on conflict-free synchronization, calm editorial typography, marginalia feedback, and archival version history.
+        </p>
+
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+          <Link href="/signup" className="w-full sm:w-auto">
+            <Button variant="primary" size="lg" className="w-full sm:w-auto gap-2 px-5 shadow-xs">
+              <span>Get started free</span>
+              <ArrowRight className="w-4 h-4" />
+            </Button>
+          </Link>
+          <Link href="/dashboard" className="w-full sm:w-auto">
+            <Button variant="outline" size="lg" className="w-full sm:w-auto px-5">
+              Explore workspace
+            </Button>
+          </Link>
+        </div>
+      </section>
+
+      {/* 3. Product Preview Section */}
+      <section id="preview" className="px-4 sm:px-8 max-w-5xl mx-auto w-full pb-20">
+        <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-md overflow-hidden">
+          {/* Simulated Application Shell Bar */}
+          <div className="h-10 border-b border-[var(--border-subtle)] px-4 bg-[var(--bg-raised)]/60 flex items-center justify-between text-xs">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-neutral-300 dark:bg-neutral-700" />
+                <span className="w-2.5 h-2.5 rounded-full bg-neutral-300 dark:bg-neutral-700" />
+                <span className="w-2.5 h-2.5 rounded-full bg-neutral-300 dark:bg-neutral-700" />
+              </div>
+              <span className="font-mono text-[11px] text-[var(--text-faint)]">
+                Core Engineering Hub / Architecture Blueprint v2
+              </span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5 text-[11px] font-mono text-emerald-600 dark:text-emerald-400">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                <span>Live</span>
+              </div>
+              <div className="flex -space-x-1">
+                <div className="w-5 h-5 rounded-full bg-[var(--accent)] text-white text-[9px] font-mono flex items-center justify-center font-bold ring-1 ring-[var(--bg-surface)]">
+                  IE
+                </div>
+                <div className="w-5 h-5 rounded-full bg-amber-600 text-white text-[9px] font-mono flex items-center justify-center font-bold ring-1 ring-[var(--bg-surface)]">
+                  AR
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {routes.map((route) => {
-              const Icon = route.icon;
-              return (
-                <Link
-                  key={route.path}
-                  href={route.path}
-                  className="group p-5 bg-[#fafafa]/50 hover:bg-white border border-[#e9e9e7] hover:border-[#2383e2]/40 rounded-xl transition-all shadow-xs hover:shadow-sm flex flex-col justify-between space-y-4"
-                >
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="w-8 h-8 rounded-lg bg-white border border-[#e5e7eb] flex items-center justify-center text-[#2383e2]">
-                        <Icon className="w-4 h-4" />
-                      </div>
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white border border-neutral-200 text-neutral-500">
-                        {route.badge}
-                      </span>
-                    </div>
-                    <h3 className="text-sm font-semibold text-[#37352f] group-hover:text-[#2383e2] transition-colors">
-                      {route.title}
-                    </h3>
-                    <p className="text-xs text-neutral-500 leading-relaxed">
-                      {route.description}
-                    </p>
-                  </div>
+          {/* Simulated Workspace Body: Sidebar + Manuscript Canvas */}
+          <div className="grid grid-cols-1 md:grid-cols-12 min-h-[460px]">
+            {/* Sidebar Preview Column */}
+            <div className="hidden md:block md:col-span-3 border-r border-[var(--border-subtle)] bg-[var(--bg-sidebar)] p-3 space-y-3">
+              <div className="flex items-center gap-2 p-1.5 rounded bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-xs font-medium text-[var(--text-primary)]">
+                <div className="w-5 h-5 rounded bg-[var(--accent-light)] text-[var(--accent)] text-[10px] font-mono font-bold flex items-center justify-center">
+                  C
+                </div>
+                <span className="truncate">Core Engineering Hub</span>
+              </div>
 
-                  <div className="flex items-center justify-between text-xs font-medium text-neutral-500 group-hover:text-[#2383e2] pt-2 border-t border-[#e9e9e7]/50">
-                    <span className="font-mono text-[11px]">{route.path}</span>
-                    <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+              <div className="space-y-1 text-xs text-[var(--text-muted)]">
+                <div className="px-2 py-1 text-[10px] font-mono uppercase text-[var(--text-faint)]">
+                  Documents
+                </div>
+                <div className="px-2 py-1 rounded bg-[var(--bg-hover)] text-[var(--text-primary)] font-medium flex items-center gap-1.5">
+                  <FileText className="w-3.5 h-3.5 text-[var(--accent)]" />
+                  <span className="truncate">Architecture Blueprint v2</span>
+                </div>
+                <div className="px-2 py-1 rounded hover:bg-[var(--bg-hover)] flex items-center gap-1.5">
+                  <FileText className="w-3.5 h-3.5 text-[var(--text-faint)]" />
+                  <span className="truncate">Hydration Protocol</span>
+                </div>
+                <div className="px-2 py-1 rounded hover:bg-[var(--bg-hover)] flex items-center gap-1.5">
+                  <FileText className="w-3.5 h-3.5 text-[var(--text-faint)]" />
+                  <span className="truncate">Sync Engine Debounce</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Manuscript Canvas Column */}
+            <div className="md:col-span-9 p-6 sm:p-10 bg-[var(--bg-surface)] flex flex-col justify-between">
+              <div className="max-w-xl mx-auto w-full space-y-6">
+                {/* Document Header */}
+                <div className="space-y-2 pb-4 border-b border-[var(--border-subtle)]/70">
+                  <h2 className="text-2xl sm:text-3xl font-serif font-normal text-[var(--text-primary)]">
+                    Architecture Blueprint v2
+                  </h2>
+                  <div className="flex items-center gap-3 text-[11px] font-mono text-[var(--text-faint)]">
+                    <span>By Intern Engineer</span>
+                    <span>•</span>
+                    <span>Nov 10, 2026</span>
+                    <span>•</span>
+                    <span className="text-emerald-600 dark:text-emerald-400">✓ Saved</span>
                   </div>
-                </Link>
+                </div>
+
+                {/* Simulated Floating Toolbar */}
+                <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-[var(--bg-raised)] border border-[var(--border-subtle)] text-xs text-[var(--text-muted)] shadow-2xs font-mono">
+                  <span className="px-1 text-[var(--accent)] font-semibold">H1</span>
+                  <span className="px-1 hover:text-[var(--text-primary)]">H2</span>
+                  <span className="text-[var(--border-subtle)]">|</span>
+                  <span className="px-1 font-bold">B</span>
+                  <span className="px-1 italic">I</span>
+                  <span className="px-1 underline">U</span>
+                  <span className="text-[var(--border-subtle)]">|</span>
+                  <span className="px-1">“ ”</span>
+                  <span className="px-1">&lt;&gt;</span>
+                </div>
+
+                {/* Manuscript Paragraph with Live Cursor */}
+                <div className="space-y-3 text-sm text-[var(--text-primary)] leading-relaxed font-sans">
+                  <p>
+                    Distributed collaborative workspaces require deterministic convergence across multi-instance nodes. By modeling document state as a sequence of conflict-free operations, every collaborator experiences zero-latency local updates while remote edits merge smoothly in the background.
+                  </p>
+
+                  <div className="relative pl-3 border-l-2 border-[var(--accent)] py-1 bg-[var(--accent-light)]/40 rounded-r-md">
+                    <p className="text-xs text-[var(--text-muted)] italic">
+                      &ldquo;Every keystroke is synchronized through a resilient WebSocket connection with Redis pub/sub arbitration.&rdquo;
+                    </p>
+                    <span className="inline-block mt-1 px-1.5 py-0.2 rounded bg-[var(--accent)] text-white text-[9px] font-mono">
+                      Alex Rivera (Editing)
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom Simulation Bar */}
+              <div className="pt-6 border-t border-[var(--border-subtle)]/60 flex items-center justify-between text-[11px] font-mono text-[var(--text-faint)]">
+                <span>Reading measure: 68ch</span>
+                <span>Yjs CRDT synchronized</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 4. Core Features Section */}
+      <section id="features" className="py-16 sm:py-24 px-4 sm:px-8 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)]">
+        <div className="max-w-5xl mx-auto space-y-12">
+          <div className="text-center space-y-2 max-w-xl mx-auto">
+            <h2 className="text-xs font-mono uppercase tracking-widest text-[var(--accent)]">
+              Crafted for Writing
+            </h2>
+            <h3 className="text-2xl sm:text-3xl font-serif font-normal text-[var(--text-primary)]">
+              Everything teams need to collaborate with clarity.
+            </h3>
+            <p className="text-xs sm:text-sm text-[var(--text-muted)]">
+              Engineered from the ground up to respect authorial focus and eliminate collaborative friction.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {coreFeatures.map((feat) => {
+              const Icon = feat.icon;
+              return (
+                <div
+                  key={feat.title}
+                  className="p-5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] hover:border-[var(--border-strong)] transition-all space-y-3"
+                >
+                  <div className="w-8 h-8 rounded-md bg-[var(--accent-light)] text-[var(--accent)] border border-[var(--accent-border)]/40 flex items-center justify-center">
+                    <Icon className="w-4 h-4" />
+                  </div>
+                  <h4 className="text-sm font-medium text-[var(--text-primary)]">
+                    {feat.title}
+                  </h4>
+                  <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                    {feat.description}
+                  </p>
+                </div>
               );
             })}
           </div>
         </div>
+      </section>
 
-        {/* Technology Stack Grid */}
-        <div className="space-y-4 pt-4 border-t border-[#e9e9e7]">
-          <h2 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">
-            Mandatory Technology Stack (₹0 Budget Target)
+      {/* 5. Closing Call to Action */}
+      <section className="py-16 px-4 sm:px-8 max-w-4xl mx-auto text-center space-y-6">
+        <div className="space-y-2">
+          <h2 className="text-2xl sm:text-4xl font-serif font-normal text-[var(--text-primary)] tracking-tight">
+            Start writing together today.
           </h2>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {techStack.map((tech) => (
-              <div
-                key={tech.name}
-                className="p-3 bg-white border border-[#e9e9e7] rounded-lg space-y-1"
-              >
-                <span className="text-[10px] text-neutral-400 block font-mono">
-                  {tech.category}
-                </span>
-                <span className="text-xs font-semibold text-[#37352f] block">
-                  {tech.name}
-                </span>
-              </div>
-            ))}
+          <p className="text-xs sm:text-sm text-[var(--text-muted)] max-w-md mx-auto">
+            Create your collaborative workspace and invite your team to experience thoughtful real-time writing.
+          </p>
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+          <Link href="/signup" className="w-full sm:w-auto">
+            <Button variant="primary" size="md" className="w-full sm:w-auto px-5 shadow-xs">
+              Create workspace
+            </Button>
+          </Link>
+          <Link href="/login" className="w-full sm:w-auto">
+            <Button variant="secondary" size="md" className="w-full sm:w-auto px-5">
+              Sign in to existing space
+            </Button>
+          </Link>
+        </div>
+      </section>
+
+      {/* 6. Product Footer */}
+      <footer className="mt-auto border-t border-[var(--border-subtle)] py-8 px-4 sm:px-8 bg-[var(--bg-surface)]">
+        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[var(--text-faint)]">
+          <div className="flex items-center gap-2">
+            <div className="w-5 h-5 rounded bg-[var(--accent-light)] text-[var(--accent)] border border-[var(--accent-border)]/40 flex items-center justify-center font-mono text-[10px] font-bold">
+              W
+            </div>
+            <span className="font-medium text-[var(--text-primary)]">CollabWorkspace</span>
+            <span>—</span>
+            <span>Real-time collaborative editing</span>
+          </div>
+
+          <div className="flex items-center gap-5">
+            <Link href="/dashboard" className="hover:text-[var(--text-primary)] transition-colors">
+              Dashboard
+            </Link>
+            <Link href="/login" className="hover:text-[var(--text-primary)] transition-colors">
+              Sign in
+            </Link>
+            <Link href="/signup" className="hover:text-[var(--text-primary)] transition-colors">
+              Create account
+            </Link>
           </div>
         </div>
-      </main>
-
-      {/* Footer */}
-      <footer className="border-t border-[#e9e9e7] py-6 px-6 text-center text-xs text-neutral-400">
-        Real-Time Collaborative Workspace • Built strictly to blueprint specifications
       </footer>
     </div>
   );

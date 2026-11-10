@@ -9,7 +9,7 @@ import {
   Loader2,
   AlertCircle,
   Clock,
-  Sparkles,
+  Bookmark,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
@@ -160,16 +160,16 @@ export function VersionHistoryPanel({
   if (!isOpen) return null;
 
   return (
-    <div className="w-full sm:w-[380px] border-l border-[#e9e9e7] bg-white flex flex-col h-full shadow-lg lg:shadow-none animate-in slide-in-from-right duration-200">
+    <div className="w-full sm:w-[380px] border-l border-[var(--border-subtle)] bg-[var(--bg-surface)] flex flex-col h-full shadow-lg lg:shadow-none animate-in slide-in-from-right duration-150 select-none">
       {/* Header */}
-      <div className="p-3.5 border-b border-[#e9e9e7] flex items-center justify-between bg-white shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="p-1 rounded-md bg-neutral-100 text-neutral-700">
-            <History className="w-4 h-4 text-neutral-700" />
+      <div className="p-3.5 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-surface)] shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="w-6 h-6 rounded-md bg-[var(--bg-raised)] text-[var(--text-muted)] flex items-center justify-center shrink-0 border border-[var(--border-subtle)]">
+            <History className="w-3.5 h-3.5" />
           </div>
           <div>
-            <h2 className="text-xs font-bold text-[#37352f]">Version History</h2>
-            <p className="text-[10px] text-neutral-400">
+            <h2 className="text-xs font-medium text-[var(--text-primary)]">Version History</h2>
+            <p className="text-[10px] text-[var(--text-faint)] font-mono">
               {versions.length} {versions.length === 1 ? "version" : "versions"} saved
             </p>
           </div>
@@ -180,7 +180,7 @@ export function VersionHistoryPanel({
             type="button"
             onClick={() => loadVersions()}
             disabled={isLoading}
-            className="p-1.5 text-neutral-400 hover:text-neutral-700 rounded-md hover:bg-neutral-100 transition-colors disabled:opacity-50"
+            className="p-1.5 text-[var(--text-faint)] hover:text-[var(--text-primary)] rounded-md hover:bg-[var(--bg-hover)] transition-colors disabled:opacity-50"
             title="Refresh history"
             aria-label="Refresh history"
           >
@@ -189,7 +189,7 @@ export function VersionHistoryPanel({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 text-neutral-400 hover:text-neutral-700 rounded-md hover:bg-neutral-100 transition-colors"
+            className="p-1.5 text-[var(--text-faint)] hover:text-[var(--text-primary)] rounded-md hover:bg-[var(--bg-hover)] transition-colors"
             title="Close history panel"
             aria-label="Close history panel"
           >
@@ -200,23 +200,23 @@ export function VersionHistoryPanel({
 
       {/* Create Version Button / Section (OWNER & EDITOR only) */}
       {canManageVersions && (
-        <div className="p-3 border-b border-[#e9e9e7] bg-[#fbfbfa] shrink-0">
+        <div className="p-3 border-b border-[var(--border-subtle)] bg-[var(--bg-raised)]/40 shrink-0">
           {!isCreatingOpen ? (
             <Button
               type="button"
               variant="secondary"
               size="sm"
               onClick={() => setIsCreatingOpen(true)}
-              className="w-full justify-center text-xs h-8 gap-1.5 border-dashed border-neutral-300 hover:border-neutral-400 text-neutral-700"
+              className="w-full justify-center text-xs h-8 gap-1.5 border border-[var(--border-subtle)] hover:border-[var(--border-strong)] bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Save Current Version</span>
             </Button>
           ) : (
             <form onSubmit={handleCreateSnapshot} className="space-y-2.5">
-              <div className="flex items-center justify-between text-xs font-semibold text-neutral-800">
-                <span className="flex items-center gap-1">
-                  <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+              <div className="flex items-center justify-between text-xs font-medium text-[var(--text-primary)]">
+                <span className="flex items-center gap-1.5">
+                  <Bookmark className="w-3.5 h-3.5 text-[var(--accent)]" />
                   <span>New Snapshot</span>
                 </span>
                 <button
@@ -225,7 +225,7 @@ export function VersionHistoryPanel({
                     setIsCreatingOpen(false);
                     setCreateError(null);
                   }}
-                  className="text-neutral-400 hover:text-neutral-600 text-[11px]"
+                  className="text-[var(--text-faint)] hover:text-[var(--text-muted)] text-[11px]"
                 >
                   Cancel
                 </button>
@@ -239,7 +239,7 @@ export function VersionHistoryPanel({
                   placeholder="Snapshot label (e.g. Pre-launch draft)"
                   maxLength={100}
                   disabled={isSubmitting}
-                  className="w-full text-xs px-2.5 py-1.5 rounded-md border border-[#e5e7eb] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-[#2383e2] bg-white placeholder:text-neutral-400"
+                  className="w-full text-xs px-2.5 py-1.5 rounded-md border border-[var(--border-subtle)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] focus:border-[var(--accent)] bg-[var(--bg-surface)] text-[var(--text-primary)] placeholder:text-[var(--text-faint)]"
                 />
               </div>
 
@@ -251,12 +251,12 @@ export function VersionHistoryPanel({
                   maxLength={500}
                   rows={2}
                   disabled={isSubmitting}
-                  className="w-full text-xs px-2.5 py-1.5 rounded-md border border-[#e5e7eb] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-[#2383e2] bg-white placeholder:text-neutral-400 resize-none"
+                  className="w-full text-xs px-2.5 py-1.5 rounded-md border border-[var(--border-subtle)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] focus:border-[var(--accent)] bg-[var(--bg-surface)] text-[var(--text-primary)] placeholder:text-[var(--text-faint)] resize-none"
                 />
               </div>
 
               {createError && (
-                <div className="flex items-center gap-1 text-[11px] text-red-600">
+                <div className="flex items-center gap-1 text-[11px] text-red-600 dark:text-red-400">
                   <AlertCircle className="w-3 h-3 shrink-0" />
                   <span>{createError}</span>
                 </div>
@@ -269,7 +269,7 @@ export function VersionHistoryPanel({
                   size="sm"
                   onClick={() => setIsCreatingOpen(false)}
                   disabled={isSubmitting}
-                  className="h-7 text-xs px-2.5"
+                  className="h-7 text-xs px-2.5 bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]"
                 >
                   Cancel
                 </Button>
@@ -278,7 +278,7 @@ export function VersionHistoryPanel({
                   variant="primary"
                   size="sm"
                   disabled={isSubmitting}
-                  className="h-7 text-xs px-3 bg-blue-600 hover:bg-blue-700 text-white gap-1"
+                  className="h-7 text-xs px-3 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white gap-1 border-transparent"
                 >
                   {isSubmitting ? (
                     <>
@@ -302,34 +302,34 @@ export function VersionHistoryPanel({
             {[1, 2, 3].map((i) => (
               <div
                 key={i}
-                className="p-3 rounded-lg border border-neutral-100 bg-neutral-50/50 animate-pulse space-y-2"
+                className="p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] animate-pulse space-y-2"
               >
                 <div className="flex justify-between">
-                  <div className="h-3 w-32 bg-neutral-200 rounded" />
-                  <div className="h-3 w-12 bg-neutral-200 rounded" />
+                  <div className="h-3 w-32 bg-[var(--bg-hover)] rounded" />
+                  <div className="h-3 w-12 bg-[var(--bg-hover)] rounded" />
                 </div>
-                <div className="h-2.5 w-48 bg-neutral-200 rounded" />
-                <div className="h-2 w-24 bg-neutral-100 rounded" />
+                <div className="h-2.5 w-48 bg-[var(--bg-hover)] rounded" />
+                <div className="h-2 w-24 bg-[var(--bg-hover)] rounded" />
               </div>
             ))}
           </div>
         ) : error ? (
-          <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-600 flex flex-col gap-2">
+          <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-xs text-red-600 dark:text-red-400 flex flex-col gap-2">
             <span>{error}</span>
             <Button
               variant="secondary"
               size="sm"
               onClick={() => loadVersions()}
-              className="self-start text-[11px] h-6 px-2"
+              className="self-start text-[11px] h-6 px-2 bg-[var(--bg-surface)] text-[var(--text-primary)] border border-[var(--border-subtle)]"
             >
               Retry
             </Button>
           </div>
         ) : versions.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-center text-neutral-400 space-y-2 px-4">
-            <Clock className="w-8 h-8 text-neutral-300 stroke-[1.5]" />
-            <p className="text-xs text-neutral-600 font-medium">No versions saved yet</p>
-            <p className="text-[11px] text-neutral-400 max-w-[240px]">
+          <div className="flex flex-col items-center justify-center py-12 text-center text-[var(--text-faint)] space-y-2 px-4">
+            <Clock className="w-8 h-8 text-[var(--text-faint)] stroke-[1.5]" />
+            <p className="text-xs text-[var(--text-muted)] font-medium">No versions saved yet</p>
+            <p className="text-[11px] text-[var(--text-faint)] max-w-[240px]">
               {canManageVersions
                 ? "Click 'Save Current Version' above to create a named snapshot. Automatic checkpoints are also saved before any restoration."
                 : "No version snapshots have been saved for this document yet."}
@@ -350,7 +350,7 @@ export function VersionHistoryPanel({
       </div>
 
       {/* Footer Info */}
-      <div className="p-2.5 border-t border-[#e9e9e7] bg-[#fbfbfa] text-center text-[10px] text-neutral-400 shrink-0">
+      <div className="p-2.5 border-t border-[var(--border-subtle)] bg-[var(--bg-raised)]/40 text-center text-[10px] text-[var(--text-faint)] shrink-0">
         <span>Click Preview to view historical contents without altering the active document.</span>
       </div>
     </div>

@@ -48,4 +48,5 @@ next-env.d.ts
 /01_ARCHITECTURE.md
 /02_UI_DESIGN_WORKFLOW.md
 /03_DEVELOPMENT_PHASES.md
+tmp_chrome_*
 /04_PRD.md

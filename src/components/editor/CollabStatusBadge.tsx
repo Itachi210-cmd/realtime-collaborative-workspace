@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Loader2, AlertCircle, Wifi, WifiOff } from "lucide-react";
+import { Loader2, AlertCircle, WifiOff } from "lucide-react";
 import { CollabConnectionStatus } from "@/lib/collab/collab-provider";
 
 interface CollabStatusBadgeProps {
@@ -21,22 +21,21 @@ export function CollabStatusBadge({
     case "connecting":
       return (
         <span
-          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200/60 animate-pulse ${className}`}
+          className={`inline-flex items-center gap-1 text-[11px] font-medium text-[var(--text-faint)] ${className}`}
           title="Connecting to collaboration server..."
         >
-          <Loader2 className="w-3 h-3 animate-spin text-[#2383e2]" />
-          <span>Connecting...</span>
+          <Loader2 className="w-3 h-3 animate-spin text-[var(--text-faint)]" />
+          <span>Connecting</span>
         </span>
       );
 
     case "connected":
       return (
         <span
-          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200/60 ${className}`}
+          className={`inline-flex items-center gap-1.5 text-[11px] font-medium text-[var(--text-muted)] ${className}`}
           title="Connected to real-time collaboration room"
         >
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          <Wifi className="w-3 h-3 text-emerald-600" />
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 dark:bg-emerald-400 shrink-0" />
           <span>Live</span>
         </span>
       );
@@ -44,22 +43,22 @@ export function CollabStatusBadge({
     case "reconnecting":
       return (
         <span
-          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200/60 animate-pulse ${className}`}
+          className={`inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400 ${className}`}
           title="Connection interrupted. Reconnecting with fresh token..."
         >
-          <Loader2 className="w-3 h-3 animate-spin text-amber-600" />
-          <span>Reconnecting...</span>
+          <Loader2 className="w-3 h-3 animate-spin text-amber-600 dark:text-amber-400" />
+          <span>Reconnecting</span>
         </span>
       );
 
     case "disconnected":
       return (
         <span
-          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium text-neutral-500 bg-neutral-100 border border-neutral-200 ${className}`}
+          className={`inline-flex items-center gap-1 text-[11px] font-medium text-[var(--text-faint)] ${className}`}
           title="Collaboration disconnected"
         >
-          <WifiOff className="w-3 h-3 text-neutral-400" />
-          <span>Disconnected</span>
+          <WifiOff className="w-3 h-3 text-[var(--text-faint)]" />
+          <span>Offline</span>
         </span>
       );
 
@@ -68,13 +67,11 @@ export function CollabStatusBadge({
         <button
           type="button"
           onClick={onRetry}
-          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium text-red-700 bg-red-50 border border-red-200 hover:bg-red-100 transition-colors ${
-            onRetry ? "cursor-pointer" : ""
-          } ${className}`}
+          className={`inline-flex items-center gap-1 text-[11px] font-medium text-red-600 dark:text-red-400 hover:underline cursor-pointer ${className}`}
           title={errorMessage || "Authentication failed. Click to retry."}
         >
-          <AlertCircle className="w-3 h-3 text-red-600" />
-          <span>Auth Error {onRetry ? "(retry)" : ""}</span>
+          <AlertCircle className="w-3 h-3 text-red-600 dark:text-red-400" />
+          <span>Auth error</span>
         </button>
       );
   }

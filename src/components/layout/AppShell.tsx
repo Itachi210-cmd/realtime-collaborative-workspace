@@ -1,17 +1,43 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useSyncExternalStore } from "react";
 import Link from "next/link";
 import {
   Menu,
   Share2,
-  Users,
   LogOut,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { WorkspaceSidebar } from "@/components/workspace/WorkspaceSidebar";
 import { Button } from "@/components/ui/Button";
 import { useCurrentUser } from "@/lib/auth/useCurrentUser";
 import { ShareDialog } from "@/components/sharing/ShareDialog";
+import { getWorkspaces } from "@/lib/api/workspaces";
+
+const emptySubscribe = () => () => {};
+
+const themeListeners = new Set<() => void>();
+function subscribeTheme(callback: () => void) {
+  themeListeners.add(callback);
+  return () => {
+    themeListeners.delete(callback);
+  };
+}
+
+function getThemeSnapshot(): "light" | "dark" {
+  if (typeof window === "undefined") return "light";
+  try {
+    const saved = localStorage.getItem("collab-theme") as "light" | "dark" | null;
+    if (saved === "light" || saved === "dark") return saved;
+    if (window.matchMedia("(prefers-color-scheme: dark)").matches) return "dark";
+  } catch {}
+  return "light";
+}
+
+function getServerThemeSnapshot(): "light" | "dark" {
+  return "light";
+}
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -23,64 +49,117 @@ interface AppShellProps {
 
 export function AppShell({
   children,
-  workspaceId = "ws-main",
+  workspaceId: propWorkspaceId,
   pageTitle = "Page",
   showSidebar = true,
-  userRole,
+  userRole: propUserRole,
 }: AppShellProps) {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const [fetchedRole, setFetchedRole] = useState<string>("");
-  const resolvedRole = userRole || fetchedRole || "VIEWER";
+  const [resolvedWorkspaceId, setResolvedWorkspaceId] = useState<string>("");
+  const [resolvedUserRole, setResolvedUserRole] = useState<string>("");
+  const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
+  const theme = useSyncExternalStore(subscribeTheme, getThemeSnapshot, getServerThemeSnapshot);
+
+  const activeWorkspaceId = propWorkspaceId || resolvedWorkspaceId;
+  const activeUserRole = propUserRole || resolvedUserRole;
+
   const { user, logout } = useCurrentUser();
 
+  // Synchronize document theme attribute
   useEffect(() => {
-    if (userRole || !workspaceId) return;
+    if (!mounted) return;
+    document.documentElement.setAttribute("data-theme", theme);
+    if (theme === "dark") {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  }, [theme, mounted]);
+
+  const handleToggleTheme = () => {
+    const next = theme === "light" ? "dark" : "light";
+    try {
+      localStorage.setItem("collab-theme", next);
+    } catch {}
+    themeListeners.forEach((listener) => listener());
+  };
+
+  // Synchronize active workspace and user role when not provided via props
+  useEffect(() => {
     let isMounted = true;
-    fetch(`/api/workspaces/${workspaceId}`, { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (isMounted && data?.workspace?.userRole) {
-          setFetchedRole(data.workspace.userRole);
-        }
-      })
-      .catch(() => {});
+
+    if (!propWorkspaceId) {
+      getWorkspaces()
+        .then((workspaces) => {
+          if (!isMounted || workspaces.length === 0) return;
+          const savedId =
+            typeof window !== "undefined"
+              ? localStorage.getItem("collab-active-workspace-id")
+              : null;
+          const targetWs =
+            workspaces.find((w) => w.id === savedId) || workspaces[0];
+          setResolvedWorkspaceId(targetWs.id);
+          setResolvedUserRole(targetWs.role);
+        })
+        .catch(() => {});
+    } else if (!propUserRole) {
+      fetch(`/api/workspaces/${propWorkspaceId}`, { cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (isMounted && data?.workspace?.userRole) {
+            setResolvedUserRole(data.workspace.userRole);
+          }
+        })
+        .catch(() => {});
+    }
 
     return () => {
       isMounted = false;
     };
-  }, [workspaceId, userRole]);
+  }, [propWorkspaceId, propUserRole]);
 
-  const userInitials = user?.name
-    ? user.name
-        .split(" ")
-        .map((n) => n[0])
-        .join("")
-        .toUpperCase()
-        .slice(0, 2)
-    : "ME";
+  const handleWorkspaceChange = (newWorkspaceId: string, role?: string) => {
+    setResolvedWorkspaceId(newWorkspaceId);
+    if (role) {
+      setResolvedUserRole(role);
+    } else {
+      fetch(`/api/workspaces/${newWorkspaceId}`, { cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data?.workspace?.userRole) {
+            setResolvedUserRole(data.workspace.userRole);
+          }
+        })
+        .catch(() => {});
+    }
+    try {
+      localStorage.setItem("collab-active-workspace-id", newWorkspaceId);
+    } catch {}
+  };
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-white text-[#37352f]">
+    <div className="flex h-screen w-full overflow-hidden bg-[var(--bg-app)] text-[var(--text-primary)] transition-colors duration-150">
       {/* Sidebar for desktop & mobile drawer */}
       {showSidebar && (
         <WorkspaceSidebar
-          workspaceId={workspaceId}
+          workspaceId={activeWorkspaceId}
           isOpen={isMobileSidebarOpen}
           onClose={() => setIsMobileSidebarOpen(false)}
-          userRole={resolvedRole}
+          onWorkspaceChange={handleWorkspaceChange}
+          userRole={activeUserRole}
         />
       )}
 
       {/* Main Layout Area */}
       <div className="flex flex-col flex-1 min-w-0 h-full overflow-hidden">
         {/* Top Navigation Bar */}
-        <header className="h-11 px-4 border-b border-[#e9e9e7] flex items-center justify-between bg-white shrink-0 select-none">
-          <div className="flex items-center gap-2 min-w-0">
+        <header className="h-12 px-4 sm:px-5 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-app)] shrink-0 select-none transition-colors duration-150">
+          <div className="flex items-center gap-2.5 min-w-0">
             {showSidebar && (
               <button
                 onClick={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
-                className="md:hidden p-1.5 rounded hover:bg-[#efefed] text-neutral-500 transition-colors"
+                className="md:hidden p-1.5 rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
                 aria-label="Toggle menu"
               >
                 <Menu className="w-4 h-4" />
@@ -88,15 +167,15 @@ export function AppShell({
             )}
 
             {/* Breadcrumbs */}
-            <nav className="flex items-center gap-1.5 text-xs text-neutral-500">
+            <nav className="flex items-center gap-2 text-xs text-[var(--text-muted)] min-w-0">
               <Link
                 href="/dashboard"
-                className="hover:text-[#37352f] hover:underline truncate max-w-[120px]"
+                className="hover:text-[var(--text-primary)] transition-colors truncate shrink-0"
               >
                 Workspace
               </Link>
-              <span>/</span>
-              <span className="text-[#37352f] font-medium truncate max-w-[180px]">
+              <span className="text-[var(--text-faint)] select-none shrink-0">/</span>
+              <span className="text-[var(--text-primary)] font-medium truncate max-w-[120px] sm:max-w-[240px]">
                 {pageTitle}
               </span>
             </nav>
@@ -104,51 +183,44 @@ export function AppShell({
 
           {/* Right Header Controls */}
           <div className="flex items-center gap-2">
-            {/* Sync State Badge (Notion-style subtle indicator) */}
-            <div className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 text-xs text-neutral-500 border border-neutral-200 rounded bg-[#fbfbfa]">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-              <span className="text-[11px] font-medium text-neutral-600">Sync: Ready</span>
-            </div>
-
-            {/* Collaborators Avatar Row Placeholder */}
-            <div className="hidden sm:flex items-center -space-x-1.5">
-              <div
-                className="w-6 h-6 rounded-full bg-blue-100 border border-white text-blue-700 flex items-center justify-center text-[10px] font-semibold"
-                title={`Active User: ${user?.name || "You"} (Owner)`}
-              >
-                {userInitials}
-              </div>
-              <div
-                className="w-6 h-6 rounded-full bg-neutral-100 border border-white text-neutral-500 flex items-center justify-center text-[10px]"
-                title="Collaboration connects in Phase 6"
-              >
-                <Users className="w-3 h-3" />
-              </div>
-            </div>
+            {/* Theme Toggle (Light / Dark) */}
+            <button
+              type="button"
+              onClick={handleToggleTheme}
+              className="h-8 w-8 inline-flex items-center justify-center rounded-md border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
+              title={mounted && theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"}
+              aria-label="Toggle theme"
+            >
+              {mounted && theme === "dark" ? (
+                <Sun className="w-3.5 h-3.5" />
+              ) : (
+                <Moon className="w-3.5 h-3.5" />
+              )}
+            </button>
 
             {/* Share / Role Button */}
             <Button
               variant="secondary"
               size="sm"
               onClick={() => setIsShareModalOpen(true)}
-              className="hidden xs:inline-flex"
+              className="hidden xs:inline-flex h-8 px-3 text-xs border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
             >
-              <Share2 className="w-3.5 h-3.5 text-neutral-500 mr-1" />
+              <Share2 className="w-3.5 h-3.5 text-[var(--text-muted)] mr-1.5" />
               <span>Share</span>
             </Button>
 
             {/* User Session / Auth Controls */}
-            <div className="flex items-center gap-1 pl-2 border-l border-neutral-200">
+            <div className="flex items-center gap-1.5 pl-2 sm:pl-2.5 border-l border-[var(--border-subtle)]">
               {user ? (
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-neutral-600 font-medium hidden md:inline truncate max-w-[120px]">
+                  <span className="text-xs text-[var(--text-muted)] font-medium hidden lg:inline truncate max-w-[140px]">
                     {user.name}
                   </span>
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={logout}
-                    className="text-xs text-neutral-500 hover:text-red-600"
+                    className="h-8 px-2 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
                     title="Sign Out"
                   >
                     <LogOut className="w-3.5 h-3.5 sm:mr-1" />
@@ -158,12 +230,20 @@ export function AppShell({
               ) : (
                 <>
                   <Link href="/login">
-                    <Button variant="ghost" size="sm" className="text-xs">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+                    >
                       Login
                     </Button>
                   </Link>
                   <Link href="/signup">
-                    <Button variant="primary" size="sm" className="text-xs">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      className="h-8 px-3 text-xs bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white border-[var(--accent)]"
+                    >
                       Signup
                     </Button>
                   </Link>
@@ -174,7 +254,7 @@ export function AppShell({
         </header>
 
         {/* Content Body */}
-        <main className="flex-1 overflow-y-auto bg-white p-4 sm:p-8">
+        <main className="flex-1 overflow-y-auto bg-[var(--bg-app)] py-6 px-4 sm:px-8 transition-colors duration-150">
           <div className="max-w-4xl mx-auto w-full">{children}</div>
         </main>
       </div>
@@ -191,8 +271,8 @@ export function AppShell({
       <ShareDialog
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
-        workspaceId={workspaceId}
-        currentUserRole={resolvedRole}
+        workspaceId={activeWorkspaceId}
+        currentUserRole={activeUserRole || "VIEWER"}
         currentUserId={user?.id}
       />
     </div>
