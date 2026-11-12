@@ -30,7 +30,7 @@ export interface PageItem {
   parentPageId?: string | null;
   title: string;
   icon?: string;
-  createdById: string;
+  createdById: string | null;
   createdAt: string;
   updatedAt: string;
 }

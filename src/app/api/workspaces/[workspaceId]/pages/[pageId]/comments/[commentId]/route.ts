@@ -1,8 +1,14 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { checkWorkspaceAccess } from "@/lib/auth/workspace-auth";
 import { prisma } from "@/lib/prisma";
 import { Role } from "@prisma/client";
 import { updateCommentSchema } from "@/lib/validations/comment";
+import {
+  NO_STORE_HEADERS,
+  readJsonBody,
+  verifySameOriginCsrf,
+} from "@/lib/security/api-guard";
+import { logStructured } from "@/lib/logger.mjs";
 
 interface RouteParams {
   params: Promise<{
@@ -12,11 +18,6 @@ interface RouteParams {
   }>;
 }
 
-const NO_STORE_HEADERS = {
-  "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-  Pragma: "no-cache",
-};
-
 /**
  * PATCH /api/workspaces/[workspaceId]/pages/[pageId]/comments/[commentId]
  * Updates comment body or resolved status.
@@ -25,8 +26,11 @@ const NO_STORE_HEADERS = {
  * - COMMENTER cannot resolve another user's comment.
  * - VIEWER cannot modify comments.
  */
-export async function PATCH(request: Request, { params }: RouteParams) {
+export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
+    const csrfError = verifySameOriginCsrf(request);
+    if (csrfError) return csrfError;
+
     const { workspaceId, pageId, commentId } = await params;
 
     // 1. Authenticate user & verify workspace membership
@@ -71,8 +75,10 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     }
 
     // 4. Validate input
-    const body = await request.json();
-    const parseResult = updateCommentSchema.safeParse(body);
+    const parsedBody = await readJsonBody(request, 32 * 1024);
+    if (!parsedBody.ok) return parsedBody.response;
+
+    const parseResult = updateCommentSchema.safeParse(parsedBody.data);
     if (!parseResult.success) {
       return NextResponse.json(
         {
@@ -137,7 +143,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       { status: 200, headers: NO_STORE_HEADERS }
     );
   } catch (error) {
-    console.error("[COMMENT_PATCH_ERROR]", error);
+    logStructured("error", "CommentAPI", "patch_failed", { error });
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500, headers: NO_STORE_HEADERS }
@@ -149,8 +155,11 @@ export async function PATCH(request: Request, { params }: RouteParams) {
  * DELETE /api/workspaces/[workspaceId]/pages/[pageId]/comments/[commentId]
  * Deletes a comment. Allowed for comment author or workspace OWNER.
  */
-export async function DELETE(request: Request, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
+    const csrfError = verifySameOriginCsrf(request);
+    if (csrfError) return csrfError;
+
     const { workspaceId, pageId, commentId } = await params;
 
     // 1. Authenticate user & verify workspace membership

@@ -36,7 +36,7 @@ export interface PageItem {
   workspaceId: string;
   parentPageId: string | null;
   title: string;
-  createdById: string;
+  createdById: string | null;
   createdAt: string;
   updatedAt: string;
   createdBy?: {

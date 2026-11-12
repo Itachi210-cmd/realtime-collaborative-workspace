@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { checkWorkspaceAccess } from "@/lib/auth/workspace-auth";
 import { prisma } from "@/lib/prisma";
 import { Role } from "@prisma/client";
@@ -6,6 +6,12 @@ import {
   getVersionSnapshot,
   restoreVersionSnapshot,
 } from "@/server/version-snapshot-service.mjs";
+import {
+  NO_STORE_HEADERS,
+  enforceRateLimit,
+  verifySameOriginCsrf,
+} from "@/lib/security/api-guard";
+import { logStructured } from "@/lib/logger.mjs";
 
 interface RouteParams {
   params: Promise<{
@@ -15,19 +21,17 @@ interface RouteParams {
   }>;
 }
 
-const NO_STORE_HEADERS = {
-  "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-  Pragma: "no-cache",
-};
-
 /**
  * POST /api/workspaces/[workspaceId]/pages/[pageId]/versions/[versionId]/restore
  * Restores a historical document version into the active document.
  * Only OWNER and EDITOR roles can restore; COMMENTER and VIEWER receive 403 Forbidden.
  * Strictly verifies workspace membership, page boundaries, and snapshot ownership.
  */
-export async function POST(request: Request, { params }: RouteParams) {
+export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
+    const csrfError = verifySameOriginCsrf(request);
+    if (csrfError) return csrfError;
+
     const { workspaceId, pageId, versionId } = await params;
 
     // 1. Authenticate user & verify workspace membership
@@ -49,6 +53,14 @@ export async function POST(request: Request, { params }: RouteParams) {
         { status: 403, headers: NO_STORE_HEADERS }
       );
     }
+
+    const rateLimited = enforceRateLimit(request, {
+      keyPrefix: "version_restore",
+      limit: 15,
+      windowMs: 60_000,
+      identifier: session.userId,
+    });
+    if (rateLimited) return rateLimited;
 
     // 3. Verify page exists and belongs to this workspace (prevent IDOR)
     const page = await prisma.page.findUnique({
@@ -104,13 +116,17 @@ export async function POST(request: Request, { params }: RouteParams) {
       { status: 200, headers: NO_STORE_HEADERS }
     );
   } catch (error: unknown) {
-    console.error("[VERSION_RESTORE_POST_ERROR]", error);
+    logStructured("error", "VersionRestoreAPI", "restore_failed", { error });
     const errObj = error as { statusCode?: number; status?: number; message?: string };
-    const status = errObj?.statusCode || errObj?.status || 500;
-    const message = errObj?.message || "Failed to restore document version.";
+    const rawStatus = errObj?.statusCode || errObj?.status || 500;
+    const status = rawStatus >= 400 && rawStatus < 600 ? rawStatus : 500;
+    const safeMessage =
+      status >= 400 && status < 500 && errObj?.message
+        ? errObj.message
+        : "Failed to restore document version.";
     return NextResponse.json(
-      { error: message },
-      { status: status >= 400 && status < 600 ? status : 500, headers: NO_STORE_HEADERS }
+      { error: safeMessage },
+      { status, headers: NO_STORE_HEADERS }
     );
   }
 }

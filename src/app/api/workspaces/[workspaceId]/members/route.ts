@@ -1,7 +1,14 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { checkWorkspaceAccess } from "@/lib/auth/workspace-auth";
 import { prisma } from "@/lib/prisma";
 import { addMemberSchema } from "@/lib/validations/member";
+import {
+  NO_STORE_HEADERS,
+  enforceRateLimit,
+  readJsonBody,
+  verifySameOriginCsrf,
+} from "@/lib/security/api-guard";
+import { logStructured } from "@/lib/logger.mjs";
 
 interface RouteParams {
   params: Promise<{
@@ -9,16 +16,11 @@ interface RouteParams {
   }>;
 }
 
-const NO_STORE_HEADERS = {
-  "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-  Pragma: "no-cache",
-};
-
 /**
  * GET /api/workspaces/[workspaceId]/members
- * Lists all members of the workspace. Available to all authenticated members.
+ * Lists members of the workspace (bounded). Available to all authenticated members.
  */
-export async function GET(request: Request, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { workspaceId } = await params;
 
@@ -30,6 +32,13 @@ export async function GET(request: Request, { params }: RouteParams) {
       );
     }
 
+    const rawLimit = Number.parseInt(
+      request.nextUrl.searchParams.get("limit") || "200",
+      10
+    );
+    const take =
+      Number.isInteger(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 500) : 200;
+
     const members = await prisma.workspaceMember.findMany({
       where: { workspaceId },
       include: {
@@ -38,6 +47,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         },
       },
       orderBy: { joinedAt: "asc" },
+      take,
     });
 
     return NextResponse.json(
@@ -54,7 +64,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       { status: 200, headers: NO_STORE_HEADERS }
     );
   } catch (error) {
-    console.error("[MEMBERS_GET_ERROR]", error);
+    logStructured("error", "MembersAPI", "list_failed", { error });
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500, headers: NO_STORE_HEADERS }
@@ -66,8 +76,11 @@ export async function GET(request: Request, { params }: RouteParams) {
  * POST /api/workspaces/[workspaceId]/members
  * Invites / adds an existing registered user to the workspace. Restricted to OWNER only.
  */
-export async function POST(request: Request, { params }: RouteParams) {
+export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
+    const csrfError = verifySameOriginCsrf(request);
+    if (csrfError) return csrfError;
+
     const { workspaceId } = await params;
 
     // 1. Authorize: strictly restricted to workspace OWNER
@@ -79,11 +92,21 @@ export async function POST(request: Request, { params }: RouteParams) {
       );
     }
 
-    const { workspace } = authCheck.data;
+    const { workspace, session } = authCheck.data;
+
+    const rateLimited = enforceRateLimit(request, {
+      keyPrefix: "member_invite",
+      limit: 30,
+      windowMs: 60_000,
+      identifier: session.userId,
+    });
+    if (rateLimited) return rateLimited;
 
     // 2. Validate payload
-    const body = await request.json();
-    const parseResult = addMemberSchema.safeParse(body);
+    const parsedBody = await readJsonBody(request, 16 * 1024);
+    if (!parsedBody.ok) return parsedBody.response;
+
+    const parseResult = addMemberSchema.safeParse(parsedBody.data);
     if (!parseResult.success) {
       return NextResponse.json(
         {
@@ -162,8 +185,19 @@ export async function POST(request: Request, { params }: RouteParams) {
       },
       { status: 201, headers: NO_STORE_HEADERS }
     );
-  } catch (error) {
-    console.error("[MEMBERS_POST_ERROR]", error);
+  } catch (error: unknown) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as { code?: string }).code === "P2002"
+    ) {
+      return NextResponse.json(
+        { error: "User is already a member of this workspace." },
+        { status: 409, headers: NO_STORE_HEADERS }
+      );
+    }
+    logStructured("error", "MembersAPI", "create_failed", { error });
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500, headers: NO_STORE_HEADERS }

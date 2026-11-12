@@ -1,9 +1,15 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { checkWorkspaceAccess } from "@/lib/auth/workspace-auth";
 import { createPageSchema, DEFAULT_PAGE_CONTENT } from "@/lib/validations/page";
 import { prisma } from "@/lib/prisma";
 import { Role } from "@prisma/client";
 import { workspaceEvents } from "@/lib/events/workspace-events";
+import {
+  NO_STORE_HEADERS,
+  readJsonBody,
+  verifySameOriginCsrf,
+} from "@/lib/security/api-guard";
+import { logStructured } from "@/lib/logger.mjs";
 
 interface RouteParams {
   params: Promise<{
@@ -13,35 +19,53 @@ interface RouteParams {
 
 /**
  * GET /api/workspaces/[workspaceId]/pages
- * Lists all pages in the authorized workspace with hierarchical child relations.
+ * Lists page metadata in the authorized workspace (excludes heavy JSONB content blobs).
  */
-export async function GET(request: Request, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { workspaceId } = await params;
     const authCheck = await checkWorkspaceAccess(workspaceId);
     if (!authCheck.success) {
       return NextResponse.json(
         { error: authCheck.error },
-        { status: authCheck.status }
+        { status: authCheck.status, headers: NO_STORE_HEADERS }
       );
     }
 
+    const rawLimit = Number.parseInt(
+      request.nextUrl.searchParams.get("limit") || "250",
+      10
+    );
+    const take =
+      Number.isInteger(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 500) : 250;
+
     const pages = await prisma.page.findMany({
       where: { workspaceId },
-      include: {
+      select: {
+        id: true,
+        workspaceId: true,
+        parentPageId: true,
+        title: true,
+        createdById: true,
+        createdAt: true,
+        updatedAt: true,
         createdBy: {
           select: { id: true, name: true, email: true },
         },
       },
       orderBy: { createdAt: "asc" },
+      take,
     });
 
-    return NextResponse.json({ pages }, { status: 200 });
+    return NextResponse.json(
+      { pages },
+      { status: 200, headers: NO_STORE_HEADERS }
+    );
   } catch (error) {
-    console.error("[PAGES_GET_ERROR]", error);
+    logStructured("error", "PagesAPI", "list_failed", { error });
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500, headers: NO_STORE_HEADERS }
     );
   }
 }
@@ -52,14 +76,17 @@ export async function GET(request: Request, { params }: RouteParams) {
  * Validates workspace membership, ensures parentPageId belongs to the same workspace,
  * and sets createdById from the authenticated session.
  */
-export async function POST(request: Request, { params }: RouteParams) {
+export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
+    const csrfError = verifySameOriginCsrf(request);
+    if (csrfError) return csrfError;
+
     const { workspaceId } = await params;
     const authCheck = await checkWorkspaceAccess(workspaceId);
     if (!authCheck.success) {
       return NextResponse.json(
         { error: authCheck.error },
-        { status: authCheck.status }
+        { status: authCheck.status, headers: NO_STORE_HEADERS }
       );
     }
 
@@ -72,19 +99,21 @@ export async function POST(request: Request, { params }: RouteParams) {
           error:
             "Forbidden: You do not have permission to create pages in this workspace.",
         },
-        { status: 403 }
+        { status: 403, headers: NO_STORE_HEADERS }
       );
     }
 
-    const body = await request.json();
-    const parseResult = createPageSchema.safeParse(body);
+    const parsedBody = await readJsonBody(request, 2.5 * 1024 * 1024);
+    if (!parsedBody.ok) return parsedBody.response;
+
+    const parseResult = createPageSchema.safeParse(parsedBody.data);
     if (!parseResult.success) {
       return NextResponse.json(
         {
           error: "Invalid input",
           issues: parseResult.error.flatten().fieldErrors,
         },
-        { status: 400 }
+        { status: 400, headers: NO_STORE_HEADERS }
       );
     }
 

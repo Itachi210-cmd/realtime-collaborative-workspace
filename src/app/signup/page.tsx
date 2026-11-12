@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, AlertCircle, Eye, EyeOff, Sun, Moon, Mail, Lock, User } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { AuthVisual } from "@/components/auth/AuthVisual";
+import { sanitizeCallbackUrl } from "@/lib/security/api-guard";
 
 const emptySubscribe = () => () => {};
 const themeListeners = new Set<() => void>();
@@ -33,7 +34,7 @@ function getServerThemeSnapshot(): "light" | "dark" {
 function SignupForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") || "/dashboard";
+  const callbackUrl = sanitizeCallbackUrl(searchParams.get("callbackUrl"));
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");

@@ -34,6 +34,17 @@ import {
   replaceDocXmlFragment,
 } from './version-snapshot-service.mjs';
 import { createCollabRedis } from './collab-redis.mjs';
+import { logStructured } from '../lib/logger.mjs';
+import {
+  INTERNAL_RPC_SECRET_REGEX,
+  getAuthSecretKey,
+  normalizeOrigin,
+  validateAuthSecret,
+  validateDatabaseUrl,
+  validateInternalRpcSecretValue,
+  validatePortEnv,
+  validatePositiveIntEnv,
+} from '../lib/env.mjs';
 
 // Protocol Message Constants
 const MESSAGE_SYNC = 0;
@@ -46,7 +57,7 @@ const COLLAB_TOKEN_ISSUER = 'collab-workspace-auth';
 const COLLAB_TOKEN_AUDIENCE = 'collab-workspace-yjs';
 
 // Internal RPC Secret Constraint (strictly 64 hex characters / 32 random bytes)
-export const INTERNAL_RPC_SECRET_REGEX = /^[0-9a-fA-F]{64}$/;
+export { INTERNAL_RPC_SECRET_REGEX };
 
 /**
  * Validates the internal RPC secret for presence and minimum cryptographic entropy.
@@ -56,15 +67,9 @@ export const INTERNAL_RPC_SECRET_REGEX = /^[0-9a-fA-F]{64}$/;
  * @throws {Error} If secret is missing, empty, or invalid format
  */
 export function validateInternalRpcSecret(secret) {
-  if (!secret || typeof secret !== 'string') {
-    throw new Error(
-      '[CollabServer] Fatal startup error: INTERNAL_RPC_SECRET is required and cannot be empty.'
-    );
-  }
-  if (!INTERNAL_RPC_SECRET_REGEX.test(secret)) {
-    throw new Error(
-      '[CollabServer] Fatal startup error: INTERNAL_RPC_SECRET must be exactly 64 hexadecimal characters (32 cryptographically random bytes).'
-    );
+  const result = validateInternalRpcSecretValue(secret);
+  if (!result.valid) {
+    throw new Error(`[CollabServer] Fatal startup error: ${result.error}`);
   }
   return true;
 }
@@ -116,13 +121,11 @@ loadEnvIfPresent();
  * @param {string} token
  * @returns {Promise<any>} decoded payload
  */
-async function verifyCollabToken(token) {
-  const secret = process.env.AUTH_SECRET;
-  if (!secret) {
-    throw new Error('AUTH_SECRET is not configured in environment or .env.local');
-  }
+async function verifyCollabToken(token, authSecretOverride) {
+  const secretKey = authSecretOverride
+    ? new TextEncoder().encode(authSecretOverride)
+    : getAuthSecretKey();
 
-  const secretKey = new TextEncoder().encode(secret);
   const { payload } = await jwtVerify(token, secretKey, {
     algorithms: ['HS256'],
     issuer: COLLAB_TOKEN_ISSUER,
@@ -170,17 +173,62 @@ function sendPermissionDenied(ws, reason) {
  * @param {string[]} [options.allowedOrigins]
  * @param {number} [options.authTimeoutMs]
  * @param {number} [options.cleanupGraceMs]
+ * @param {string} [options.authSecret]
  * @returns {Object} { server, wss, rooms, start, close }
  */
 export function createCollabServer(options = {}) {
-  const port = options.port ?? (process.env.COLLAB_PORT ? parseInt(process.env.COLLAB_PORT, 10) : 1234);
+  // Validate AUTH_SECRET at startup so misconfigured deployments fail fast
+  const authSecretCandidate =
+    'authSecret' in options ? options.authSecret : process.env.AUTH_SECRET;
+  const authCheck = validateAuthSecret(authSecretCandidate);
+  if (!authCheck.valid) {
+    throw new Error(`[CollabServer] Fatal startup error: ${authCheck.error}`);
+  }
+
+  // Validate DATABASE_URL at startup unless custom persistence/prisma is injected
+  if (!options.prisma && !options.loadDocumentState) {
+    const dbCheck = validateDatabaseUrl(process.env.DATABASE_URL, {
+      isProduction: process.env.NODE_ENV === 'production',
+    });
+    if (!dbCheck.valid) {
+      throw new Error(`[CollabServer] Fatal startup error: ${dbCheck.error}`);
+    }
+  }
+
+  let port = options.port;
+  if (port === undefined) {
+    const portCheck = validatePortEnv('COLLAB_PORT', process.env.COLLAB_PORT);
+    if (!portCheck.valid) {
+      throw new Error(`[CollabServer] Fatal startup error: ${portCheck.error}`);
+    }
+    port = portCheck.port ?? 1234;
+  }
+
   const host = options.host ?? (process.env.COLLAB_HOST || undefined);
-  const authTimeoutMs = options.authTimeoutMs ?? (
-    process.env.COLLAB_AUTH_TIMEOUT_MS ? parseInt(process.env.COLLAB_AUTH_TIMEOUT_MS, 10) : 5000
-  );
-  const cleanupGraceMs = options.cleanupGraceMs ?? (
-    process.env.COLLAB_CLEANUP_GRACE_MS ? parseInt(process.env.COLLAB_CLEANUP_GRACE_MS, 10) : 30000
-  );
+
+  let authTimeoutMs = options.authTimeoutMs;
+  if (authTimeoutMs === undefined) {
+    const timeoutCheck = validatePositiveIntEnv(
+      'COLLAB_AUTH_TIMEOUT_MS',
+      process.env.COLLAB_AUTH_TIMEOUT_MS
+    );
+    if (!timeoutCheck.valid) {
+      throw new Error(`[CollabServer] Fatal startup error: ${timeoutCheck.error}`);
+    }
+    authTimeoutMs = timeoutCheck.value ?? 5000;
+  }
+
+  let cleanupGraceMs = options.cleanupGraceMs;
+  if (cleanupGraceMs === undefined) {
+    const graceCheck = validatePositiveIntEnv(
+      'COLLAB_CLEANUP_GRACE_MS',
+      process.env.COLLAB_CLEANUP_GRACE_MS
+    );
+    if (!graceCheck.valid) {
+      throw new Error(`[CollabServer] Fatal startup error: ${graceCheck.error}`);
+    }
+    cleanupGraceMs = graceCheck.value ?? 30000;
+  }
 
   const defaultAllowedOrigins = [
     'http://localhost:3000',
@@ -195,7 +243,9 @@ export function createCollabServer(options = {}) {
   const rawOrigins = options.allowedOrigins
     ? options.allowedOrigins.join(',')
     : (process.env.COLLAB_ALLOWED_ORIGINS || defaultAllowedOrigins.join(','));
-  const allowedOrigins = [...new Set(rawOrigins.split(',').map((o) => o.trim()).filter(Boolean))];
+  const allowedOrigins = [
+    ...new Set(rawOrigins.split(',').map(normalizeOrigin).filter(Boolean)),
+  ];
 
   const internalRpcSecret =
     'internalRpcSecret' in options
@@ -449,19 +499,62 @@ export function createCollabServer(options = {}) {
     try {
       const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
-      // 1. Health check endpoint
+      // 1. Health check endpoint (verifies DB and Redis readiness when enabled)
       if (url.pathname === '/health' || url.pathname === '/healthz') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
+        if (isShuttingDown) {
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              status: 'shutting_down',
+              instanceId,
+              uptime: process.uptime(),
+            })
+          );
+          return;
+        }
+
+        const isMockPersistence = Boolean(options.loadDocumentState && !options.prisma);
+        let dbStatus = isMockPersistence ? 'mocked' : 'unknown';
+        let dbHealthy = isMockPersistence;
+
+        if (!isMockPersistence) {
+          try {
+            const prismaClient = options.prisma || getPrismaClient();
+            await Promise.race([
+              prismaClient.$queryRaw`SELECT 1`,
+              new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Database health check timeout')), 2500)
+              ),
+            ]);
+            dbStatus = 'ready';
+            dbHealthy = true;
+          } catch {
+            dbStatus = 'unavailable';
+            dbHealthy = false;
+          }
+        }
+
+        const redisEnabled = Boolean(collabRedis && collabRedis.enabled);
+        const redisHealthy = !redisEnabled || Boolean(collabRedis?.isHealthy?.());
+        const redisStatus = redisEnabled ? (collabRedis?.status || 'unavailable') : 'disabled';
+
+        const overallHealthy = dbHealthy && redisHealthy;
+        res.writeHead(overallHealthy ? 200 : 503, { 'Content-Type': 'application/json' });
         res.end(
           JSON.stringify({
-            status: 'ok',
+            status: overallHealthy ? 'ok' : 'degraded',
             instanceId,
             uptime: process.uptime(),
             roomsCount: rooms.size,
             rooms: Array.from(rooms.keys()),
+            database: {
+              status: dbStatus,
+              healthy: dbHealthy,
+            },
             redis: {
-              enabled: Boolean(collabRedis && collabRedis.enabled),
-              status: collabRedis ? collabRedis.status : 'disabled',
+              enabled: redisEnabled,
+              status: redisStatus,
+              healthy: redisHealthy,
             },
           })
         );
@@ -834,7 +927,28 @@ export function createCollabServer(options = {}) {
   });
 
   // WebSocket Server (noServer mode to handle custom upgrade authorization)
-  const wss = new WebSocketServer({ noServer: true });
+  // Cap individual Yjs/control WS frames at 2 MiB to mitigate memory exhaustion
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
+
+  // Server-side WebSocket heartbeat to clean up half-open TCP sockets (proxies/dropped Wi-Fi)
+  const heartbeatIntervalMs = 30000;
+  const heartbeatInterval = setInterval(() => {
+    for (const client of wss.clients) {
+      if (client.isAlive === false) {
+        try {
+          client.terminate();
+        } catch {}
+        continue;
+      }
+      client.isAlive = false;
+      try {
+        client.ping();
+      } catch {}
+    }
+  }, heartbeatIntervalMs);
+  if (typeof heartbeatInterval.unref === 'function') {
+    heartbeatInterval.unref();
+  }
 
   // HTTP Upgrade Handler: Origin validation and URL path inspection
   server.on('upgrade', (req, socket, head) => {
@@ -867,8 +981,9 @@ export function createCollabServer(options = {}) {
       return;
     }
 
-    // Extract pageId from path: /:pageId or /rooms/:pageId or query param
-    const segments = parsedUrl.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+    // Extract pageId from path: /:pageId, /rooms/:pageId, /collab-ws/:pageId, or query param
+    const rawSegments = parsedUrl.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+    const segments = rawSegments[0] === 'collab-ws' ? rawSegments.slice(1) : rawSegments;
     let pageId = null;
 
     if (segments.length > 0) {
@@ -881,10 +996,10 @@ export function createCollabServer(options = {}) {
       pageId = parsedUrl.searchParams.get('room') || parsedUrl.searchParams.get('pageId');
     }
 
-    if (!pageId) {
-      console.warn('[CollabServer] Upgrade rejected: Missing pageId in URL.');
+    if (!pageId || !/^[a-zA-Z0-9._:-]{1,128}$/.test(pageId)) {
+      console.warn('[CollabServer] Upgrade rejected: Invalid or missing pageId in URL.');
       socket.write(
-        'HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\nBad Request: Missing room pageId\r\n'
+        'HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\nBad Request: Invalid room pageId\r\n'
       );
       socket.destroy();
       return;
@@ -897,9 +1012,15 @@ export function createCollabServer(options = {}) {
   });
 
   // WebSocket Connection Handler
+  const MAX_PENDING_PRE_AUTH_FRAMES = 50;
   wss.on('connection', (ws, req, pageId) => {
     ws.isCollabAuthenticated = false;
+    ws.isAlive = true;
     ws.pageId = pageId;
+
+    ws.on('pong', () => {
+      ws.isAlive = true;
+    });
 
     // Strict 5-second First-Message Authentication Gate
     const authTimer = setTimeout(() => {
@@ -918,9 +1039,18 @@ export function createCollabServer(options = {}) {
 
     // Initial message handler for authentication
     ws.on('message', async (data, isBinary) => {
+      ws.isAlive = true;
       if (!ws.isCollabAuthenticated) {
         if (isAuthenticating) {
-          // If auth is already in flight, queue incoming traffic until verification resolves
+          // If auth is already in flight, queue bounded incoming traffic until verification resolves
+          if (pendingPreAuthQueue.length >= MAX_PENDING_PRE_AUTH_FRAMES) {
+            pendingPreAuthQueue.length = 0;
+            try {
+              ws.close(1008, 'Pre-authentication queue limit exceeded');
+            } catch {}
+            ws.terminate();
+            return;
+          }
           pendingPreAuthQueue.push({ data, isBinary });
           return;
         }
@@ -937,6 +1067,8 @@ export function createCollabServer(options = {}) {
               handleRoomMessage(ws, next.data, next.isBinary, pageId);
             }
           }
+        } else {
+          pendingPreAuthQueue.length = 0;
         }
       } else {
         handleRoomMessage(ws, data, isBinary, pageId);
@@ -946,6 +1078,7 @@ export function createCollabServer(options = {}) {
     // Cleanup on disconnect
     ws.on('close', () => {
       clearTimeout(authTimer);
+      pendingPreAuthQueue.length = 0;
       if (ws.isCollabAuthenticated) {
         handleClientDisconnect(ws, pageId);
       }
@@ -953,6 +1086,7 @@ export function createCollabServer(options = {}) {
 
     ws.on('error', (err) => {
       clearTimeout(authTimer);
+      pendingPreAuthQueue.length = 0;
       console.error(`[CollabServer] Socket error on room "${pageId}":`, err.message);
     });
   });
@@ -1013,7 +1147,7 @@ export function createCollabServer(options = {}) {
     // Verify token with Jose
     let payload;
     try {
-      payload = await verifyCollabToken(token);
+      payload = await verifyCollabToken(token, options.authSecret);
     } catch (err) {
       clearTimeout(authTimer);
       console.warn(`[CollabServer] JWT verification failed on room "${pageId}":`, err.message);
@@ -1152,22 +1286,29 @@ export function createCollabServer(options = {}) {
       return;
     }
 
-    // Check for JSON control frames (ping/pong, test signals, save_retry)
-    if (
-      typeof data === 'string' ||
-      (!isBinary && typeof data === 'object' && !(data instanceof Uint8Array) && !Buffer.isBuffer(data))
-    ) {
+    // Check for JSON control frames (ws passes text frames with isBinary === false and Buffer data)
+    if (typeof data === 'string' || !isBinary) {
       try {
-        const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+        const parsed =
+          typeof data === 'string'
+            ? JSON.parse(data)
+            : Buffer.isBuffer(data) || data instanceof Uint8Array || data instanceof ArrayBuffer
+              ? JSON.parse(Buffer.from(data).toString('utf8'))
+              : data;
         if (parsed.type === 'ping') {
           ws.send(JSON.stringify({ type: 'pong' }));
         } else if (parsed.type === 'save_retry') {
+          const userRole = ws.collabUser?.role;
+          if (userRole !== 'OWNER' && userRole !== 'EDITOR') {
+            sendPermissionDenied(ws, 'Read-only roles cannot trigger manual document saves');
+            return;
+          }
           broadcastSaveStatus(room, {
             type: 'save_status',
             status: 'saving',
             pageId,
           });
-          scheduleSave(pageId, room.doc)
+          scheduleSave(pageId, room.doc, { prisma: options.prisma, collabRedis })
             .then((saveResult) => {
               room.lastSavedVersion = saveResult.stateVersion;
               if (!hasPendingSave(pageId)) {
@@ -1418,8 +1559,19 @@ export function createCollabServer(options = {}) {
     }
 
     return new Promise((resolve, reject) => {
+      const onError = (err) => {
+        server.off('listening', onListening);
+        reject(err);
+      };
       const onListening = () => {
+        server.off('error', onError);
         const boundHost = host || 'dual-stack (0.0.0.0 / ::)';
+        logStructured('info', 'collab_server.started', {
+          port,
+          host: boundHost,
+          instanceId,
+          redisEnabled: Boolean(collabRedis && collabRedis.enabled),
+        });
         console.log(`[CollabServer] Yjs WebSocket server listening on port ${port} (${boundHost}) [instance: ${instanceId}]`);
         console.log(`[CollabServer] Allowed Origins: ${allowedOrigins.join(', ')}`);
         console.log(`[CollabServer] Auth Timeout: ${authTimeoutMs}ms | Cleanup Grace: ${cleanupGraceMs}ms`);
@@ -1429,12 +1581,12 @@ export function createCollabServer(options = {}) {
         resolve({ server, port, host, instanceId });
       };
 
+      server.once('error', onError);
       if (host) {
         server.listen(port, host, onListening);
       } else {
         server.listen(port, onListening);
       }
-      server.on('error', reject);
     });
   }
 
@@ -1443,6 +1595,7 @@ export function createCollabServer(options = {}) {
    */
   async function close() {
     isShuttingDown = true;
+    clearInterval(heartbeatInterval);
 
     // 1. Clear room cleanup timers
     for (const room of rooms.values()) {
@@ -1526,10 +1679,24 @@ export function createCollabServer(options = {}) {
       }
     }
 
-    // 6. Close WebSocket server and HTTP server
+    // 6. Close WebSocket server and HTTP server without hanging on idle keep-alive sockets
     await new Promise((resolve) => {
+      const finishTimer = setTimeout(() => {
+        for (const wsClient of wss.clients) {
+          try {
+            wsClient.terminate();
+          } catch {}
+        }
+        server.closeAllConnections?.();
+        resolve();
+      }, 2500);
+
       wss.close(() => {
-        server.close(resolve);
+        server.close(() => {
+          clearTimeout(finishTimer);
+          resolve();
+        });
+        server.closeIdleConnections?.();
       });
     });
 
@@ -1573,28 +1740,30 @@ function isDirectExecution() {
 }
 
 if (isDirectExecution()) {
-  let serverInstance = null;
+  const serverInstance = createCollabServer({ closePersistence: true });
+  let exitInProgress = false;
   const gracefulExit = async (signal) => {
+    if (exitInProgress) return;
+    exitInProgress = true;
+    logStructured('info', 'collab_server.shutdown_signal', { signal });
     console.log(`[CollabServer] Received ${signal}. Initiating graceful shutdown...`);
-    if (serverInstance) {
-      try {
-        await serverInstance.close();
-      } catch (err) {
-        console.error('[CollabServer] Error during shutdown:', err);
-      }
+    let hadError = false;
+    try {
+      await serverInstance.close();
+    } catch (err) {
+      hadError = true;
+      logStructured('error', 'collab_server.shutdown_error', { error: err });
+      console.error('[CollabServer] Error during shutdown:', err);
     }
-    process.exit(0);
+    process.exit(hadError ? 1 : 0);
   };
 
   process.on('SIGINT', () => gracefulExit('SIGINT'));
   process.on('SIGTERM', () => gracefulExit('SIGTERM'));
 
-  startCollabServer()
-    .then((inst) => {
-      serverInstance = inst;
-    })
-    .catch((err) => {
-      console.error('[CollabServer] Fatal startup error:', err);
-      process.exit(1);
-    });
+  serverInstance.start().catch((err) => {
+    logStructured('error', 'collab_server.startup_error', { error: err });
+    console.error('[CollabServer] Fatal startup error:', err);
+    process.exit(1);
+  });
 }

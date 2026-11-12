@@ -9,19 +9,30 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  INTERNAL_RPC_SECRET_REGEX,
+  validateInternalRpcSecretValue,
+} from '../lib/env.mjs';
 
 function loadEnvIfPresent() {
-  if (process.env.INTERNAL_RPC_SECRET) return;
+  if (
+    process.env.INTERNAL_RPC_SECRET ||
+    process.env.NODE_ENV === 'production' ||
+    process.env.NEXT_RUNTIME
+  ) {
+    return;
+  }
 
+  const rootDir = process.cwd();
   const envFiles = [
-    path.resolve(process.cwd(), '.env.local'),
-    path.resolve(process.cwd(), '.env'),
+    path.join(rootDir, /*turbopackIgnore: true*/ '.env.local'),
+    path.join(rootDir, /*turbopackIgnore: true*/ '.env'),
   ];
 
   for (const envPath of envFiles) {
-    if (fs.existsSync(envPath)) {
+    if (fs.existsSync(/*turbopackIgnore: true*/ envPath)) {
       try {
-        const content = fs.readFileSync(envPath, 'utf8');
+        const content = fs.readFileSync(/*turbopackIgnore: true*/ envPath, 'utf8');
         for (const line of content.split('\n')) {
           const trimmed = line.trim();
           if (!trimmed || trimmed.startsWith('#')) continue;
@@ -48,7 +59,7 @@ loadEnvIfPresent();
 
 const DEFAULT_COLLAB_PORT = 1234;
 const DEFAULT_TIMEOUT_MS = 5000;
-export const INTERNAL_RPC_SECRET_REGEX = /^[0-9a-fA-F]{64}$/;
+export { INTERNAL_RPC_SECRET_REGEX };
 
 /**
  * Validates the client-side RPC secret.
@@ -57,15 +68,9 @@ export const INTERNAL_RPC_SECRET_REGEX = /^[0-9a-fA-F]{64}$/;
  * @throws {Error} If secret is missing, empty, or not 64 hex characters
  */
 export function validateClientRpcSecret(secret) {
-  if (!secret || typeof secret !== 'string') {
-    throw new Error(
-      '[CollabInternalClient] Dedicated INTERNAL_RPC_SECRET is required and cannot be empty. Fallback to AUTH_SECRET is forbidden.'
-    );
-  }
-  if (!INTERNAL_RPC_SECRET_REGEX.test(secret)) {
-    throw new Error(
-      '[CollabInternalClient] Dedicated INTERNAL_RPC_SECRET must be exactly 64 hexadecimal characters (32 cryptographically random bytes).'
-    );
+  const result = validateInternalRpcSecretValue(secret);
+  if (!result.valid) {
+    throw new Error(`[CollabInternalClient] Dedicated ${result.error}`);
   }
   return true;
 }

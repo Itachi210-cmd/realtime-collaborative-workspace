@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getCurrentSession } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
+import { NO_STORE_HEADERS } from "@/lib/security/api-guard";
+import { logStructured } from "@/lib/logger.mjs";
 
 export async function GET() {
   try {
@@ -8,11 +10,10 @@ export async function GET() {
     if (!session) {
       return NextResponse.json(
         { error: "Unauthorized" },
-        { status: 401 }
+        { status: 401, headers: NO_STORE_HEADERS }
       );
     }
 
-    // Optionally check if user still exists in database
     const user = await prisma.user.findUnique({
       where: { id: session.userId },
       select: {
@@ -26,21 +27,19 @@ export async function GET() {
     if (!user) {
       return NextResponse.json(
         { error: "User no longer exists" },
-        { status: 401 }
+        { status: 401, headers: NO_STORE_HEADERS }
       );
     }
 
     return NextResponse.json(
-      {
-        user,
-      },
-      { status: 200 }
+      { user },
+      { status: 200, headers: NO_STORE_HEADERS }
     );
   } catch (error) {
-    console.error("[AUTH_ME_ERROR]", error);
+    logStructured("error", "AuthAPI", "me_failed", { error });
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500, headers: NO_STORE_HEADERS }
     );
   }
 }

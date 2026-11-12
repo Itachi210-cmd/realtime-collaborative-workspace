@@ -1,49 +1,63 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyPassword } from "@/lib/auth/password";
 import { loginSchema } from "@/lib/auth/validation";
 import { createSessionToken, setSessionCookie } from "@/lib/auth/session";
+import {
+  NO_STORE_HEADERS,
+  enforceRateLimit,
+  readJsonBody,
+  verifySameOriginCsrf,
+} from "@/lib/security/api-guard";
+import { logStructured } from "@/lib/logger.mjs";
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const csrfError = verifySameOriginCsrf(request);
+    if (csrfError) return csrfError;
 
-    const parseResult = loginSchema.safeParse(body);
+    const rateLimited = enforceRateLimit(request, {
+      keyPrefix: "auth_login",
+      limit: 20,
+      windowMs: 15 * 60 * 1000,
+    });
+    if (rateLimited) return rateLimited;
+
+    const parsedBody = await readJsonBody(request, 16 * 1024);
+    if (!parsedBody.ok) return parsedBody.response;
+
+    const parseResult = loginSchema.safeParse(parsedBody.data);
     if (!parseResult.success) {
       return NextResponse.json(
         {
           error: "Invalid input",
           issues: parseResult.error.flatten().fieldErrors,
         },
-        { status: 400 }
+        { status: 400, headers: NO_STORE_HEADERS }
       );
     }
 
     const { email, password } = parseResult.data;
 
-    // Retrieve user from database
     const user = await prisma.user.findUnique({
       where: { email },
     });
 
     if (!user) {
-      // Generic error message to prevent user enumeration
       return NextResponse.json(
         { error: "Invalid email or password." },
-        { status: 401 }
+        { status: 401, headers: NO_STORE_HEADERS }
       );
     }
 
-    // Verify password hash
     const isPasswordValid = await verifyPassword(password, user.passwordHash);
     if (!isPasswordValid) {
       return NextResponse.json(
         { error: "Invalid email or password." },
-        { status: 401 }
+        { status: 401, headers: NO_STORE_HEADERS }
       );
     }
 
-    // Create session token and set HTTP-only cookie
     const token = await createSessionToken({
       userId: user.id,
       email: user.email,
@@ -61,13 +75,13 @@ export async function POST(request: Request) {
           email: user.email,
         },
       },
-      { status: 200 }
+      { status: 200, headers: NO_STORE_HEADERS }
     );
   } catch (error) {
-    console.error("[AUTH_LOGIN_ERROR]", error);
+    logStructured("error", "AuthAPI", "login_failed", { error });
     return NextResponse.json(
       { error: "Internal server error. Please try again later." },
-      { status: 500 }
+      { status: 500, headers: NO_STORE_HEADERS }
     );
   }
 }

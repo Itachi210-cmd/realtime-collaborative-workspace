@@ -1,0 +1,43 @@
+# Render Blueprint (Strict ₹0 Free Tier)
+# Real-Time Collaborative Workspace - Phase 12 Step 4
+#
+# Single-container deployment running Next.js + Yjs WebSocket server via
+# scripts/prod-entrypoint.mjs behind Render's HTTPS/WSS reverse proxy.
+# Database: External Neon Free PostgreSQL (DATABASE_URL configured as secret).
+# Single-instance collaboration mode: REDIS_ENABLED=false.
+
+services:
+  - type: web
+    name: collab-workspace
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /api/health
+    autoDeploy: false
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      - key: NEXT_INTERNAL_PORT
+        value: "3001"
+      - key: COLLAB_PORT
+        value: "1234"
+      - key: REDIS_ENABLED
+        value: "false"
+      - key: PG_POOL_MAX
+        value: "5"
+      - key: DATABASE_URL
+        sync: false
+      - key: AUTH_SECRET
+        sync: false
+      - key: INTERNAL_RPC_SECRET
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+      - key: NEXT_PUBLIC_COLLAB_WS_URL
+        sync: false
+      - key: COLLAB_ALLOWED_ORIGINS
+        sync: false
+

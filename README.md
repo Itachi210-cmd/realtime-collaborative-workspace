@@ -1,167 +1,170 @@
-# Real-Time Collaborative Workspace (Notion/Figma Style)
+# Real-Time Collaborative Workspace
 
-A high-performance, real-time collaborative workspace web application inspired by Notion and Figma. Built with Next.js App Router, TypeScript, Tailwind CSS, TipTap, Yjs (CRDTs), PostgreSQL, Prisma ORM, WebSockets, and Redis.
-
-> **Internship Project Window:** 20 October 2026 – 20 November 2026  
-> **Budget Target:** ₹0 (Strictly Free and Open-Source tools only)  
-> **Single Source of Truth:** Guided by the four architectural blueprint documents in this repository (`01_ARCHITECTURE.md`, `02_UI_DESIGN_WORKFLOW.md`, `03_DEVELOPMENT_PHASES.md`, `04_PRD.md`).
+A Notion-style real-time collaborative document workspace powered by **Next.js 16**, **React 19**, **TipTap 3**, **Yjs CRDT**, **PostgreSQL 16 (Prisma 7)**, and optional **Redis 7**, designed to run locally or deploy cleanly on a strict **₹0 budget**.
 
 ---
 
-## 🚀 Project Overview
+## Features
 
-The goal of this project is to provide a clean, responsive, and seamless shared workspace where authenticated users can:
-- Create workspaces and hierarchical rich-text pages.
-- Simultaneously edit documents with real-time CRDT conflict-free synchronization via **Yjs**.
-- View live presence avatars, selection highlights, and collaborator cursors via **y-websocket**.
-- Persist both structured application metadata and binary CRDT document state (`BYTEA`) in **PostgreSQL** using **Prisma**.
-- Discuss content through comments and restore point-in-time document states via version snapshots.
-- Scale across multiple collaboration server instances using **Redis** pub/sub broadcasting.
-- Enforce strict server-side role-based access control (**Owner**, **Editor**, **Commenter**, **Viewer**).
-
----
-
-## 🛠️ Mandatory Technology Stack
-
-| Layer | Technology | Purpose |
-|---|---|---|
-| **Framework & UI** | Next.js (App Router), React, TypeScript | Core web application, server-rendered views, client interactivity |
-| **Styling** | Tailwind CSS | Notion-inspired minimal design system, neutral light theme |
-| **Rich-Text Engine** | TipTap | Headless editor body, formatting toolbars, document DOM |
-| **CRDT Collaboration** | Yjs | Conflict-free replicated data type merging concurrent edits |
-| **Transport** | WebSockets (`y-websocket`) | Low-latency duplex communication for document updates and awareness |
-| **Scaling Adapter** | Redis | Cross-instance sync and pub/sub message coordination |
-| **Database & ORM** | PostgreSQL & Prisma ORM | Relational models for users, workspaces, pages, comments, and binary Yjs state |
-| **Iconography** | Lucide React | Clean, minimal UI icons |
+- **Authentication & Sessions**: Email/password signup and login (`bcryptjs`), HS256 JWT stored in HTTP-only `collab_session` cookie (`jose`), and App Router `middleware.ts` protection for `/dashboard` and `/workspace/*`.
+- **Workspaces & Role-Based Permissions (RBAC)**: Multi-workspace management with four roles (`OWNER`, `EDITOR`, `COMMENTER`, `VIEWER`), member invitations by email, role updates, and server-side IDOR enforcement on every endpoint.
+- **Hierarchical Document Pages & Live Tree Sync**: Nested pages (`parentPageId` hierarchy with circular-parent prevention) synchronized across workspace members via authenticated Server-Sent Events (`/api/workspaces/[workspaceId]/pages/events`).
+- **Real-Time Collaborative Editing (Yjs + TipTap)**: Dedicated `ws` collaboration server (`src/server/collab-server.mjs`) running `y-websocket` protocol with first-message JWT authentication (no JWTs in query strings) and read-only enforcement for `COMMENTER` / `VIEWER`.
+- **Live Presence & Cursors**: Multi-user collaborator avatars and live cursor carets (`@tiptap/extension-collaboration-caret`) with server-side awareness identity sanitization (`sanitizeAwarenessUpdate`) preventing user spoofing.
+- **PostgreSQL CRDT Persistence**: Binary Yjs snapshots (`DocumentState.yjsState`) stored with monotonically incrementing `stateVersion`, debounced writes (`1500ms` delay / `5000ms` max wait), per-document sequential write queues, legacy `Page.content` JSONB fallback hydration, and save-status notifications (`saving` / `saved` / `error`).
+- **Comments & Resolution Workflow**: Anchored inline/page comments restricted to `OWNER`, `EDITOR`, and `COMMENTER`, with resolve/unresolve, edit, and delete permissions scoped to authors and workspace owners.
+- **Version History & Live Restore**: Paginated manual and automatic snapshots (`VersionSnapshot`) with TipTap JSON preview, safety auto-snapshots created prior to restores, loopback internal RPC synchronization to update live `Y.Doc` rooms in real time, and DB fallback when no room is active.
+- **Optional Redis Scaling**: Toggleable via `REDIS_ENABLED` (`src/server/collab-redis.mjs`) for cross-instance Pub/Sub updates, awareness fan-out, and distributed persistence/restore locks (safe single-instance mode when `REDIS_ENABLED=false`).
+- **Production Security & Supervision**: Same-origin CSRF guards, bounded request payloads (`413`), sliding-window rate limiting (`429`), CSP + security headers, startup environment validation (`src/lib/env.mjs`), and single-container production supervisor (`scripts/prod-entrypoint.mjs`).
 
 ---
 
-## 📁 Scalable Project Folder Structure
+## Technology Stack
+
+| Layer | Technology |
+| --- | --- |
+| Frontend & API | Next.js `16.4.3` (App Router, `output: "standalone"`), React `19.3.0`, TypeScript, Tailwind CSS v4, `lucide-react` |
+| Rich Text & CRDT | TipTap `^3.32.2`, `yjs` `^13.6.33`, `y-websocket` `^3.1.0`, `y-protocols`, `lib0` |
+| WebSocket Server | Dedicated Node.js 22 server (`ws ^8.22.1`, `src/server/collab-server.mjs`) |
+| Database & ORM | PostgreSQL 16, Prisma `7.10.1` (`@prisma/adapter-pg`, `pg ^8.13.3`) |
+| Real-Time Scaling (Optional) | Redis 7, `ioredis ^6.0.0` |
+| Auth & Validation | `jose ^6.2.14`, `bcryptjs ^3.0.3`, `zod ^4.6.7` |
+| Packaging & Deployment | Multi-stage `Dockerfile` (`node:22-alpine`, non-root user), `docker-compose.yml`, `docker-compose.prod.yml`, `render.yaml` |
+
+---
+
+## Architecture Overview
+
+In production (`Dockerfile` / `render.yaml` / `docker-compose.prod.yml`), [`scripts/prod-entrypoint.mjs`](file:///d:/NT%20PROJECTS/Real-Time%20Collaborative%20Workspace/scripts/prod-entrypoint.mjs) supervises both Node processes in one container so loopback RPCs (`/internal/rooms/:pageId/*`) and in-memory SSE streams work seamlessly while exposing a single multiplexed HTTP + WebSocket port (`PORT`):
+
+```mermaid
+flowchart TB
+    Client["Browser (HTTPS + WSS / SSE)"]
+    Proxy["prod-entrypoint.mjs Public Ingress (PORT)"]
+    Next["Next.js Standalone (127.0.0.1:3001)"]
+    Collab["collab-server.mjs (127.0.0.1:1234)"]
+    PG[("PostgreSQL 16")]
+    Redis[("Redis 7 (Optional)")]
+
+    Client --> Proxy
+    Proxy -->|"HTTP & SSE"| Next
+    Proxy -->|"WebSocket Upgrade (/collab-ws, /:pageId)"| Collab
+    Next -->|"Loopback Internal RPC + Bearer Secret"| Collab
+    Next --> PG
+    Collab --> PG
+    Collab -.->|"REDIS_ENABLED=true"| Redis
+```
+
+Detailed diagrams and component flows live in [docs/ARCHITECTURE.md](file:///d:/NT%20PROJECTS/Real-Time%20Collaborative%20Workspace/docs/ARCHITECTURE.md).
+
+---
+
+## Repository Structure
 
 ```text
-├── 01_ARCHITECTURE.md         # Architecture blueprint & data separation specs
-├── 02_UI_DESIGN_WORKFLOW.md     # UI layout, design tokens & user workflow specs
-├── 03_DEVELOPMENT_PHASES.md     # 14 development phases & exit criteria
-├── 04_PRD.md                    # Product Requirements Document
-├── .env.example                 # Placeholder environment variables template
-├── .gitignore                   # Clean ignore rules (secrets & build outputs excluded)
-├── package.json                 # Dependency manifest and scripts
-├── tsconfig.json                # TypeScript compiler configuration
-├── next.config.ts               # Next.js configuration
-├── eslint.config.mjs            # ESLint rules and Next.js configuration
-├── public/                      # Static assets & icons
-└── src/
-    ├── app/                     # Next.js App Router routes & layouts
-    │   ├── layout.tsx           # Root layout with Geist font, ToastProvider & light theme
-    │   ├── globals.css          # Tailwind CSS styles & Notion color variables
-    │   ├── page.tsx             # Home / project portal with route navigation
-    │   ├── error.tsx            # Global error boundary with retry & dashboard redirect
-    │   ├── not-found.tsx        # Notion-style 404 not found handler
-    │   ├── login/
-    │   │   └── page.tsx         # /login placeholder route
-    │   ├── signup/
-    │   │   └── page.tsx         # /signup placeholder route
-    │   ├── dashboard/
-    │   │   ├── page.tsx         # /dashboard workspace dashboard with search & empty states
-    │   │   └── loading.tsx      # Dashboard skeleton loading state
-    │   └── workspace/
-    │       └── [workspaceId]/
-    │           ├── page.tsx     # /workspace/[workspaceId] collaborative editor route
-    │           └── loading.tsx  # Workspace skeleton loading state
-    ├── components/              # Modular, reusable UI components
-    │   ├── layout/
-    │   │   └── AppShell.tsx     # Responsive shell (collapsible sidebar + top bar + share modal)
-    │   ├── workspace/
-    │   │   ├── WorkspaceSidebar.tsx # Notion-style sidebar with search dialog & profile
-    │   │   ├── WorkspaceSwitcher.tsx# Multi-workspace dropdown switcher & creation modal
-    │   │   └── PageTree.tsx         # Hierarchical nested page tree with expand/collapse & actions
-    │   └── ui/
-    │       ├── Button.tsx       # Reusable button with Notion variant tokens
-    │       ├── Input.tsx        # Reusable input field with label and error states
-    │       ├── Dialog.tsx       # Accessible modal dialog with backdrop & ESC dismiss
-    │       ├── Skeleton.tsx     # Notion pulse placeholder skeleton
-    │       └── Toast.tsx        # Toast alert notification provider & cards (success/error/info)
-    └── lib/
-        ├── types.ts             # Domain models (User, Workspace, PageItem, Roles)
-        └── utils.ts             # Utility helpers (class name merging)
+├── src/
+│   ├── app/
+│   │   ├── api/                  # REST & SSE API route handlers (auth, workspaces, members, pages, comments, versions, health)
+│   │   ├── dashboard/            # Authenticated workspace list dashboard
+│   │   ├── workspace/[workspaceId]/ # Main collaborative workspace editor UI
+│   │   ├── login/ & signup/      # Authentication pages
+│   │   ├── layout.tsx, page.tsx  # Root layout & landing page
+│   ├── components/               # UI components (editor, sidebar, sharing, comments, history, layout, primitives)
+│   ├── lib/
+│   │   ├── auth/                 # Session JWT, collab JWT, password hashing, RBAC checkWorkspaceAccess
+│   │   ├── collab/               # Client AuthenticatedWebSocket transport & WebsocketProvider factory
+│   │   ├── events/               # In-memory workspace SSE emitter
+│   │   ├── security/             # Same-origin CSRF, rate limiting, bounded JSON reader, HTTP headers
+│   │   ├── validations/          # Zod schemas
+│   │   ├── env.mjs               # Centralized runtime env & secret validation + URL credential redaction
+│   │   └── prisma.ts             # Shared Prisma 7 PG adapter pool singleton
+│   ├── server/
+│   │   ├── collab-server.mjs     # Dedicated Yjs WS server + /healthz + loopback /internal/* RPCs
+│   │   ├── collab-persistence.mjs# Debounced BYTEA Y.Doc saves, queues, legacy fallback, awareness sanitizer
+│   │   ├── collab-redis.mjs      # Optional Redis pub/sub & Lua-safe distributed locks
+│   │   ├── collab-internal-client.mjs # Loopback RPC client from Next.js API -> collab-server
+│   │   └── version-snapshot-service.mjs # Snapshot creation, WordCount/JSON extraction, safe transactional restore
+│   ├── instrumentation.ts        # Startup env validation hook for Next.js Node runtime
+│   └── middleware.ts             # Route protection (/dashboard, /workspace)
+├── prisma/
+│   ├── schema.prisma             # Database models & Phase 12 indexes
+│   └── migrations/               # Committed SQL migrations (0_init -> phase12_indexes_and_safety)
+├── scripts/
+│   ├── prod-entrypoint.mjs       # Multi-process production supervisor & HTTP/WS ingress proxy
+│   ├── validate_env.mjs          # CLI preflight validator (npm run env:check)
+│   ├── verify_env_secrets.mjs    # Automated secrets & env validation tests
+│   └── verify_prod_runtime.mjs   # Production server, healthcheck, RPC & WS security verification suite
+├── docs/
+│   ├── ARCHITECTURE.md           # System, data, auth, Yjs & restore architecture
+│   ├── API.md                    # Complete HTTP/SSE, internal RPC, and WebSocket protocol spec
+│   ├── ENVIRONMENT.md            # Every environment variable, default & strict prod validation rules
+│   └── DEPLOYMENT.md             # Local Dev, Production Docker Compose, and Render Free + Neon Free runbooks
+├── Dockerfile                    # Multi-stage non-root Node 22 production build
+├── docker-compose.yml            # Local Postgres 16 + Redis 7 services
+├── docker-compose.prod.yml       # Production stack (postgres + redis + supervised app container)
+├── render.yaml                   # Render Free Docker blueprint (single-instance, REDIS_ENABLED=false)
+└── .env.example                  # Placeholder-only environment template
 ```
 
 ---
 
-## 🚦 Development Status
+## Documentation Guides
 
-Development follows the completion-based plan in `03_DEVELOPMENT_PHASES.md`:
-
-- [x] **Phase 1: Project Foundation** (Next.js App Router, TypeScript, Tailwind CSS, ESLint, responsive app shell, placeholder routes `/login`, `/signup`, `/dashboard`, `/workspace/[workspaceId]`, `.env.example`, `.gitignore`, `README.md`).
-- [x] **Phase 2: UI Shell and Navigation** (Reusable `Dialog`, `Skeleton`, `Toast`, `WorkspaceSwitcher`, nested `PageTree` with expand/collapse, dashboard search & empty states, loading skeletons, error boundary, and responsive drawer).
-- [ ] **Phase 3:** Authentication (Sessions, Password hashing, Route protection)
-- [ ] **Phase 4:** PostgreSQL, Prisma, and Workspace Data CRUD
-- [ ] **Phase 5:** TipTap Rich-Text Editor Integration
-- [ ] **Phase 6:** Yjs and WebSocket Collaboration
-- [ ] **Phase 7:** Live Presence and Colored Cursors
-- [ ] **Phase 8:** Collaborative Document Persistence in PostgreSQL
-- [ ] **Phase 9:** Comments and Role-Based Permissions
-- [ ] **Phase 10:** Version History Snapshots & Restoration
-- [ ] **Phase 11:** Redis Multi-Instance Pub/Sub Coordination
-- [ ] **Phase 12:** Quality Assurance, Security, and Edge-Case Testing
-- [ ] **Phase 13:** Free-Tier Deployment (Vercel & Render)
-- [ ] **Phase 14:** Submission, Demo Video & Presentation
+- **[Environment Configuration (`docs/ENVIRONMENT.md`)](file:///d:/NT%20PROJECTS/Real-Time%20Collaborative%20Workspace/docs/ENVIRONMENT.md)** — Required vs. optional variables, public vs. server-only scoping, strict format rules, and secret generation.
+- **[Architecture Deep Dive (`docs/ARCHITECTURE.md`)](file:///d:/NT%20PROJECTS/Real-Time%20Collaborative%20Workspace/docs/ARCHITECTURE.md)** — ER diagram, RBAC permission matrix, Yjs auth/sync/persistence, version restore fan-out, and Redis behavior.
+- **[API & WebSocket Spec (`docs/API.md`)](file:///d:/NT%20PROJECTS/Real-Time%20Collaborative%20Workspace/docs/API.md)** — All App Router HTTP/SSE endpoints, rate limits, internal loopback RPCs, and WebSocket binary/JSON protocol frames.
+- **[Deployment Runbooks (`docs/DEPLOYMENT.md`)](file:///d:/NT%20PROJECTS/Real-Time%20Collaborative%20Workspace/docs/DEPLOYMENT.md)** — Step-by-step Local Dev, Production Docker Compose, and Render Free + Neon Free (₹0) instructions.
 
 ---
 
-## 💻 Installation & Local Development
+## Quick Start (Local Development)
 
-### Prerequisites
-- **Node.js**: v20 or higher (v22 LTS recommended)
-- **npm**: v10 or higher
-- **Git**
+1. **Prerequisites**: Node.js 22.x (`node -v`) and Docker Desktop (or PostgreSQL 16 + Redis 7).
+2. **Install & start local Postgres/Redis**:
+   ```bash
+   npm ci
+   docker compose up -d
+   ```
+3. **Create `.env.local` from `.env.example`** with strong random `AUTH_SECRET` (>= 32 chars) and `INTERNAL_RPC_SECRET` (64 hex chars), plus your local `DATABASE_URL` (also visible to Prisma CLI via `.env` or shell env):
+   ```bash
+   npm run env:check
+   npx prisma generate
+   npx prisma migrate deploy
+   ```
+4. **Start Next.js & Collaboration Server** (two terminals):
+   ```bash
+   npm run dev
+   npm run collab
+   ```
+5. Open `http://localhost:3000`. See [docs/DEPLOYMENT.md](file:///d:/NT%20PROJECTS/Real-Time%20Collaborative%20Workspace/docs/DEPLOYMENT.md) for production Docker Compose (`docker-compose.prod.yml`) and Render Free + Neon Free deployment.
 
-### 1. Clone & Install Dependencies
+---
+
+## Testing & Verification Scripts
+
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd "Real-Time Collaborative Workspace"
+# TypeScript typecheck & ESLint & Next.js production build
+npx tsc --noEmit
+npm run lint
+npm run build
 
-# Install dependencies
-npm install
+# Environment & secrets preflight + security unit tests
+npm run env:check -- --strict
+node scripts/verify_env_secrets.mjs
+
+# Production entrypoint, WebSocket first-message JWT auth, RPC isolation & Docker checks
+node scripts/verify_prod_runtime.mjs
+
+# RBAC & multi-user feature regression scripts (requires running local DB/servers; inspect script headers before executing)
+node scripts/run_phase9_perm.mjs
+node scripts/run_global_regression.mjs
 ```
-
-### 2. Configure Environment Variables
-Copy the placeholder configuration:
-```bash
-cp .env.example .env.local
-```
-*(In Phase 1, `.env.example` contains placeholders. Actual database and secret values will be configured in subsequent phases.)*
-
-### 3. Run Development Server
-```bash
-npm run dev
-```
-Open [http://localhost:3000](http://localhost:3000) in your browser.
-
-### 4. Verified Routes
-- **Home / Hub:** `http://localhost:3000/`
-- **Login:** `http://localhost:3000/login`
-- **Signup:** `http://localhost:3000/signup`
-- **Dashboard:** `http://localhost:3000/dashboard`
-- **Workspace Editor:** `http://localhost:3000/workspace/ws-main`
 
 ---
 
-## 📜 Available NPM Commands
+## Known Limitations
 
-| Command | Action |
-|---|---|
-| `npm run dev` | Starts the Next.js local development server on port 3000 |
-| `npm run build` | Compiles the production build with TypeScript checking and optimizations |
-| `npm run start` | Launches the compiled Next.js production server |
-| `npm run lint` | Runs ESLint to check for syntax and style issues |
-
----
-
-## 🔒 Budget & Security Policy
-
-1. **₹0 Budget:** This project uses 100% free and open-source software. No paid tiers, commercial subscriptions, or credit card trials are activated.
-2. **Secrets Protection:** No `.env` or sensitive credentials are ever committed to version control.
-3. **Data Integrity:** Strict server-side verification ensures authorization is validated on both REST API endpoints and WebSocket connection handshakes.
-
+- **Single-Instance SSE Tree Stream**: Page create/rename/delete SSE events (`/pages/events`) use an in-memory `EventEmitter` (`src/lib/events/workspace-events.ts`), so SSE works across clients connected to the same Next.js instance without Redis SSE bridging.
+- **In-Memory Rate Limiter**: HTTP route rate limiting (`src/lib/security/api-guard.ts`) stores sliding-window counters per Node.js process rather than in Redis.
+- **₹0 Cloud Tier Constraints**: Deploying on Render Free (`render.yaml`, `REDIS_ENABLED=false`) caps scaling to a single container instance and incurs ~30–60s cold starts after ~15 minutes of inactivity. No Redis server is provisioned on the ₹0 Render blueprint; enable Redis via `docker-compose.prod.yml` or an external Redis service if scaling horizontally.
+- **Database Migrations in Production Container**: The minimal runtime `Dockerfile` intentionally excludes Prisma CLI dev packages to keep image size small; run `npx prisma migrate deploy` from your workstation or CI/CD before starting or upgrading a production deployment.

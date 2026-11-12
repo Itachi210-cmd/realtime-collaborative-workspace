@@ -49,13 +49,20 @@ export async function fetchCollabToken(workspaceId, pageId) {
  * @returns {string}
  */
 export function getDefaultCollabWsUrl() {
-  if (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_COLLAB_WS_URL) {
-    return process.env.NEXT_PUBLIC_COLLAB_WS_URL;
+  try {
+    const configuredUrl = process.env.NEXT_PUBLIC_COLLAB_WS_URL;
+    if (configuredUrl && configuredUrl.trim().length > 0) {
+      return configuredUrl.trim();
+    }
+  } catch {
+    // Ignore ReferenceError if process is undefined in unbundled browser ESM
   }
   if (typeof window !== 'undefined' && window.location) {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    if (window.location.protocol === 'https:') {
+      return `wss://${window.location.host}/collab-ws`;
+    }
     const hostname = window.location.hostname || 'localhost';
-    return `${protocol}//${hostname}:1234`;
+    return `ws://${hostname}:1234`;
   }
   return 'ws://localhost:1234';
 }
@@ -241,6 +248,15 @@ export function createCollabWebsocketProvider({
       notifyStatus('disconnected', event.reason);
     }
   });
+
+  // Allow explicit manual retry (e.g. clicking "Retry" after session refresh) to clear permanent lock
+  const originalConnect = provider.connect.bind(provider);
+  provider.connect = () => {
+    isPermanentAuthFailure = false;
+    provider.shouldConnect = true;
+    notifyStatus('connecting');
+    return originalConnect();
+  };
 
   // Connection error handling
   provider.on('connection-error', (event) => {

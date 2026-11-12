@@ -1,5 +1,6 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
+import { getAuthSecretKey } from "@/lib/env.mjs";
 
 export const SESSION_COOKIE_NAME = "collab_session";
 const SESSION_EXPIRATION_SECONDS = 7 * 24 * 60 * 60; // 7 days
@@ -10,23 +11,13 @@ export interface SessionPayload {
   name: string;
 }
 
-function getSecretKey(): Uint8Array {
-  const secret = process.env.AUTH_SECRET;
-  if (!secret) {
-    throw new Error(
-      "AUTH_SECRET environment variable is missing. Please define it in .env.local"
-    );
-  }
-  return new TextEncoder().encode(secret);
-}
-
 /**
  * Creates a signed JWT session token valid for 7 days.
  */
 export async function createSessionToken(
   payload: SessionPayload
 ): Promise<string> {
-  const secretKey = getSecretKey();
+  const secretKey = getAuthSecretKey();
   return new SignJWT({
     userId: payload.userId,
     email: payload.email,
@@ -44,8 +35,8 @@ export async function createSessionToken(
 export async function verifySessionToken(
   token: string
 ): Promise<SessionPayload | null> {
+  const secretKey = getAuthSecretKey();
   try {
-    const secretKey = getSecretKey();
     const { payload } = await jwtVerify(token, secretKey, {
       algorithms: ["HS256"],
     });

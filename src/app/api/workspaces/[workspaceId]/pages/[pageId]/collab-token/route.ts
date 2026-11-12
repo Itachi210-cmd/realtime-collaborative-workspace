@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { checkWorkspaceAccess } from "@/lib/auth/workspace-auth";
 import { prisma } from "@/lib/prisma";
 import { Role } from "@prisma/client";
@@ -6,6 +6,11 @@ import {
   createCollabToken,
   COLLAB_TOKEN_EXPIRATION_SECONDS,
 } from "@/lib/auth/collab-token";
+import {
+  NO_STORE_HEADERS,
+  enforceRateLimit,
+  verifySameOriginCsrf,
+} from "@/lib/security/api-guard";
 
 interface RouteParams {
   params: Promise<{
@@ -14,18 +19,16 @@ interface RouteParams {
   }>;
 }
 
-const NO_STORE_HEADERS = {
-  "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-  Pragma: "no-cache",
-};
-
 /**
  * POST /api/workspaces/[workspaceId]/pages/[pageId]/collab-token
- * Issues a secure, short-lived JWT token authorizing an OWNER or EDITOR
+ * Issues a short-lived JWT token authorizing an authorized workspace member
  * to join the specified page's Yjs collaboration room.
  */
-export async function POST(request: Request, { params }: RouteParams) {
+export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
+    const csrfError = verifySameOriginCsrf(request);
+    if (csrfError) return csrfError;
+
     const { workspaceId, pageId } = await params;
 
     // 1. Authenticate user through existing session & verify workspace access
@@ -38,6 +41,14 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     const { session, isOwner, membership } = authCheck.data;
+
+    const rateLimited = enforceRateLimit(request, {
+      keyPrefix: "collab_token",
+      limit: 60,
+      windowMs: 60_000,
+      identifier: session.userId,
+    });
+    if (rateLimited) return rateLimited;
 
     // 2. Verify page exists and belongs to the requested workspace
     const page = await prisma.page.findUnique({

@@ -1,4 +1,5 @@
 import { SignJWT, jwtVerify } from "jose";
+import { getAuthSecretKey } from "@/lib/env.mjs";
 
 export interface CollabTokenPayload {
   sub: string;
@@ -17,16 +18,6 @@ export const COLLAB_TOKEN_EXPIRATION_SECONDS = 60;
 export const COLLAB_TOKEN_ISSUER = "collab-workspace-auth";
 export const COLLAB_TOKEN_AUDIENCE = "collab-workspace-yjs";
 
-function getSecretKey(): Uint8Array {
-  const secret = process.env.AUTH_SECRET;
-  if (!secret) {
-    throw new Error(
-      "AUTH_SECRET environment variable is missing. Please define it in .env.local"
-    );
-  }
-  return new TextEncoder().encode(secret);
-}
-
 /**
  * Creates a short-lived signed JWT token authorizing an OWNER or EDITOR
  * to join the specified page's Yjs collaboration room.
@@ -38,7 +29,7 @@ export async function createCollabToken(params: {
   workspaceId: string;
   role: string;
 }): Promise<string> {
-  const secretKey = getSecretKey();
+  const secretKey = getAuthSecretKey();
   return new SignJWT({
     userName: params.userName,
     pageId: params.pageId,
@@ -62,8 +53,8 @@ export async function createCollabToken(params: {
 export async function verifyCollabToken(
   token: string
 ): Promise<CollabTokenPayload | null> {
+  const secretKey = getAuthSecretKey();
   try {
-    const secretKey = getSecretKey();
     const { payload } = await jwtVerify(token, secretKey, {
       algorithms: ["HS256"],
       issuer: COLLAB_TOKEN_ISSUER,

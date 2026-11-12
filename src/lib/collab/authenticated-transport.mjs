@@ -194,8 +194,10 @@ export function createAuthenticatedWebSocketClass(
           }
         };
       } catch (err) {
-        // Token retrieval failure or connection initialization failure
-        const code = err?.status === 403 || err?.message?.includes('403') ? 4403 : 4401;
+        // Only permanent HTTP 401/403 token rejection halts automatic reconnects;
+        // network errors / offline / 5xx use a retryable code (4503) so backoff retries continue.
+        const status = err?.status;
+        const code = status === 403 ? 4403 : status === 401 ? 4401 : 4503;
         this.handleClose(code, err?.message || 'Authentication failed');
       }
     }
@@ -212,10 +214,14 @@ export function createAuthenticatedWebSocketClass(
     }
 
     send(data) {
+      if (this.isClosed) return;
       if (this.isHandshakeComplete && this.rawWs && this.rawWs.readyState === AuthenticatedWebSocket.OPEN) {
         this.rawWs.send(data);
       } else {
-        // Buffer until handshake acknowledgment is received
+        // Cap pre-handshake queue to bound memory if socket stalls
+        if (this.messageQueue.length >= 200) {
+          this.messageQueue.shift();
+        }
         this.messageQueue.push(data);
       }
     }
@@ -223,6 +229,7 @@ export function createAuthenticatedWebSocketClass(
     close(code, reason) {
       this.isClosed = true;
       this.readyState = AuthenticatedWebSocket.CLOSING;
+      this.messageQueue.length = 0;
       if (this.rawWs) {
         try {
           this.rawWs.close(code, reason);

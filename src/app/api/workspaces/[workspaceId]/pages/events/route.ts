@@ -41,6 +41,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     // 2. Setup SSE ReadableStream
     let isClosed = false;
     let pingTimer: NodeJS.Timeout | null = null;
+    let cleanupRef: (() => void) | null = null;
 
     const stream = new ReadableStream({
       start(controller) {
@@ -80,18 +81,24 @@ export async function GET(request: Request, { params }: RouteParams) {
             pingTimer = null;
           }
           workspaceEvents.offWorkspaceEvent(workspaceId, eventHandler);
+          request.signal.removeEventListener("abort", cleanup);
           try {
             controller.close();
           } catch {}
         };
 
+        cleanupRef = cleanup;
         request.signal.addEventListener("abort", cleanup);
       },
       cancel() {
-        isClosed = true;
-        if (pingTimer) {
-          clearInterval(pingTimer);
-          pingTimer = null;
+        if (cleanupRef) {
+          cleanupRef();
+        } else {
+          isClosed = true;
+          if (pingTimer) {
+            clearInterval(pingTimer);
+            pingTimer = null;
+          }
         }
       },
     });

@@ -1,26 +1,30 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
+import { getAuthSecretKey } from "@/lib/env.mjs";
 
 const SESSION_COOKIE_NAME = "collab_session";
-
-function getSecretKey(): Uint8Array {
-  const secret = process.env.AUTH_SECRET;
-  if (!secret) {
-    // Default fallback in development if env variable is somehow unloaded in Edge context
-    return new TextEncoder().encode("collab-workspace-super-secret-jwt-signing-key-32-chars-min!");
-  }
-  return new TextEncoder().encode(secret);
-}
 
 export async function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
 
+  let secretKey: Uint8Array;
+  try {
+    secretKey = getAuthSecretKey();
+  } catch (err) {
+    console.error(
+      "[Middleware] Authentication configuration error:",
+      err instanceof Error ? err.message : "Invalid AUTH_SECRET"
+    );
+    return new NextResponse("Server authentication configuration error.", {
+      status: 500,
+    });
+  }
+
   let isAuthenticated = false;
   if (token) {
     try {
-      const secretKey = getSecretKey();
       await jwtVerify(token, secretKey, {
         algorithms: ["HS256"],
       });

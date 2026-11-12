@@ -354,6 +354,22 @@ export function RichTextEditor({
     [ydoc, awareness, isEditable, currentUser?.name, userColor.hex]
   );
 
+  // Clean up per-page Awareness and Y.Doc instances after provider teardown on page switch or unmount
+  useEffect(() => {
+    return () => {
+      try {
+        awareness.destroy();
+      } catch {
+        // Ignore double-destroy on Fast Refresh
+      }
+      try {
+        ydoc.destroy();
+      } catch {
+        // Ignore double-destroy on Fast Refresh
+      }
+    };
+  }, [awareness, ydoc]);
+
   if (!isMounted) {
     return (
       <div className="flex justify-center w-full">

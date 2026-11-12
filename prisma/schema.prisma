@@ -70,14 +70,16 @@ model Page {
   documentState    DocumentState?
   comments         Comment[]
   versionSnapshots VersionSnapshot[]
-  createdById      String
-  createdBy        User              @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdById      String?
+  createdBy        User?             @relation(fields: [createdById], references: [id], onDelete: SetNull)
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
   @@index([workspaceId])
   @@index([parentPageId])
   @@index([createdById])
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, parentPageId, createdAt])
   @@map("pages")
 }
 
@@ -107,6 +109,7 @@ model Comment {
 
   @@index([pageId])
   @@index([authorId])
+  @@index([pageId, createdAt])
   @@map("comments")
 }
 

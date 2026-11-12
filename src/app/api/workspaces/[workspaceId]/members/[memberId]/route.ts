@@ -1,7 +1,13 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { checkWorkspaceAccess } from "@/lib/auth/workspace-auth";
 import { prisma } from "@/lib/prisma";
 import { updateMemberRoleSchema } from "@/lib/validations/member";
+import {
+  NO_STORE_HEADERS,
+  readJsonBody,
+  verifySameOriginCsrf,
+} from "@/lib/security/api-guard";
+import { logStructured } from "@/lib/logger.mjs";
 
 interface RouteParams {
   params: Promise<{
@@ -10,17 +16,15 @@ interface RouteParams {
   }>;
 }
 
-const NO_STORE_HEADERS = {
-  "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-  Pragma: "no-cache",
-};
-
 /**
  * PATCH /api/workspaces/[workspaceId]/members/[memberId]
  * Updates a workspace member's role (EDITOR, COMMENTER, VIEWER). Restricted to OWNER only.
  */
-export async function PATCH(request: Request, { params }: RouteParams) {
+export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
+    const csrfError = verifySameOriginCsrf(request);
+    if (csrfError) return csrfError;
+
     const { workspaceId, memberId } = await params;
 
     // 1. Authorize: restricted to workspace OWNER
@@ -35,8 +39,10 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     const { workspace } = authCheck.data;
 
     // 2. Validate input role
-    const body = await request.json();
-    const parseResult = updateMemberRoleSchema.safeParse(body);
+    const parsedBody = await readJsonBody(request, 16 * 1024);
+    if (!parsedBody.ok) return parsedBody.response;
+
+    const parseResult = updateMemberRoleSchema.safeParse(parsedBody.data);
     if (!parseResult.success) {
       return NextResponse.json(
         {
@@ -95,7 +101,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       { status: 200, headers: NO_STORE_HEADERS }
     );
   } catch (error) {
-    console.error("[MEMBER_PATCH_ERROR]", error);
+    logStructured("error", "MemberAPI", "patch_failed", { error });
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500, headers: NO_STORE_HEADERS }
@@ -107,8 +113,11 @@ export async function PATCH(request: Request, { params }: RouteParams) {
  * DELETE /api/workspaces/[workspaceId]/members/[memberId]
  * Removes a member from the workspace. Restricted to OWNER only.
  */
-export async function DELETE(request: Request, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
+    const csrfError = verifySameOriginCsrf(request);
+    if (csrfError) return csrfError;
+
     const { workspaceId, memberId } = await params;
 
     // 1. Authorize: restricted to workspace OWNER

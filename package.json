@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "collab": "node src/server/collab-server.mjs"
+    "collab": "node src/server/collab-server.mjs",
+    "start:prod": "node scripts/prod-entrypoint.mjs",
+    "env:check": "node scripts/validate_env.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.1",

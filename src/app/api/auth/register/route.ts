@@ -1,42 +1,58 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/auth/password";
 import { registerSchema } from "@/lib/auth/validation";
 import { createSessionToken, setSessionCookie } from "@/lib/auth/session";
+import {
+  NO_STORE_HEADERS,
+  enforceRateLimit,
+  readJsonBody,
+  verifySameOriginCsrf,
+} from "@/lib/security/api-guard";
+import { logStructured } from "@/lib/logger.mjs";
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const csrfError = verifySameOriginCsrf(request);
+    if (csrfError) return csrfError;
 
-    const parseResult = registerSchema.safeParse(body);
+    const rateLimited = enforceRateLimit(request, {
+      keyPrefix: "auth_register",
+      limit: 15,
+      windowMs: 15 * 60 * 1000,
+    });
+    if (rateLimited) return rateLimited;
+
+    const parsedBody = await readJsonBody(request, 16 * 1024);
+    if (!parsedBody.ok) return parsedBody.response;
+
+    const parseResult = registerSchema.safeParse(parsedBody.data);
     if (!parseResult.success) {
       return NextResponse.json(
         {
           error: "Invalid input",
           issues: parseResult.error.flatten().fieldErrors,
         },
-        { status: 400 }
+        { status: 400, headers: NO_STORE_HEADERS }
       );
     }
 
     const { name, email, password } = parseResult.data;
 
-    // Check if user already exists
     const existingUser = await prisma.user.findUnique({
       where: { email },
+      select: { id: true },
     });
 
     if (existingUser) {
       return NextResponse.json(
         { error: "An account with this email already exists." },
-        { status: 409 }
+        { status: 409, headers: NO_STORE_HEADERS }
       );
     }
 
-    // Hash password
     const passwordHash = await hashPassword(password);
 
-    // Persist new user in PostgreSQL
     const newUser = await prisma.user.create({
       data: {
         name,
@@ -51,7 +67,6 @@ export async function POST(request: Request) {
       },
     });
 
-    // Create session token and set HTTP-only cookie
     const token = await createSessionToken({
       userId: newUser.id,
       email: newUser.email,
@@ -65,13 +80,24 @@ export async function POST(request: Request) {
         message: "Registration successful",
         user: newUser,
       },
-      { status: 201 }
+      { status: 201, headers: NO_STORE_HEADERS }
     );
-  } catch (error) {
-    console.error("[AUTH_REGISTER_ERROR]", error);
+  } catch (error: unknown) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as { code?: string }).code === "P2002"
+    ) {
+      return NextResponse.json(
+        { error: "An account with this email already exists." },
+        { status: 409, headers: NO_STORE_HEADERS }
+      );
+    }
+    logStructured("error", "AuthAPI", "register_failed", { error });
     return NextResponse.json(
       { error: "Internal server error. Please try again later." },
-      { status: 500 }
+      { status: 500, headers: NO_STORE_HEADERS }
     );
   }
 }

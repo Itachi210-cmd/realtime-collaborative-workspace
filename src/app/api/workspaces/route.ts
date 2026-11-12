@@ -1,19 +1,36 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getCurrentSession } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import { createWorkspaceSchema } from "@/lib/validations/workspace";
 import { Role } from "@prisma/client";
+import {
+  NO_STORE_HEADERS,
+  enforceRateLimit,
+  readJsonBody,
+  verifySameOriginCsrf,
+} from "@/lib/security/api-guard";
+import { logStructured } from "@/lib/logger.mjs";
 
 /**
  * GET /api/workspaces
- * Lists all workspaces that the logged-in user owns or is a member of.
+ * Lists workspaces that the logged-in user owns or is a member of.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const session = await getCurrentSession();
     if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401, headers: NO_STORE_HEADERS }
+      );
     }
+
+    const rawLimit = Number.parseInt(
+      request.nextUrl.searchParams.get("limit") || "100",
+      10
+    );
+    const take =
+      Number.isInteger(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 200) : 100;
 
     const workspaces = await prisma.workspace.findMany({
       where: {
@@ -38,6 +55,7 @@ export async function GET() {
         },
       },
       orderBy: { updatedAt: "desc" },
+      take,
     });
 
     const formatted = workspaces.map((ws) => {
@@ -60,12 +78,15 @@ export async function GET() {
       };
     });
 
-    return NextResponse.json({ workspaces: formatted }, { status: 200 });
+    return NextResponse.json(
+      { workspaces: formatted },
+      { status: 200, headers: NO_STORE_HEADERS }
+    );
   } catch (error) {
-    console.error("[WORKSPACES_GET_ERROR]", error);
+    logStructured("error", "WorkspacesAPI", "list_failed", { error });
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500, headers: NO_STORE_HEADERS }
     );
   }
 }
@@ -74,22 +95,38 @@ export async function GET() {
  * POST /api/workspaces
  * Creates a new workspace and automatically adds the creator as OWNER member in a transaction.
  */
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
+    const csrfError = verifySameOriginCsrf(request);
+    if (csrfError) return csrfError;
+
     const session = await getCurrentSession();
     if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401, headers: NO_STORE_HEADERS }
+      );
     }
 
-    const body = await request.json();
-    const parseResult = createWorkspaceSchema.safeParse(body);
+    const rateLimited = enforceRateLimit(request, {
+      keyPrefix: "workspace_create",
+      limit: 20,
+      windowMs: 60_000,
+      identifier: session.userId,
+    });
+    if (rateLimited) return rateLimited;
+
+    const parsedBody = await readJsonBody(request, 16 * 1024);
+    if (!parsedBody.ok) return parsedBody.response;
+
+    const parseResult = createWorkspaceSchema.safeParse(parsedBody.data);
     if (!parseResult.success) {
       return NextResponse.json(
         {
           error: "Invalid input",
           issues: parseResult.error.flatten().fieldErrors,
         },
-        { status: 400 }
+        { status: 400, headers: NO_STORE_HEADERS }
       );
     }
 

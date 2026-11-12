@@ -1,9 +1,15 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { checkWorkspaceAccess } from "@/lib/auth/workspace-auth";
 import { updatePageSchema } from "@/lib/validations/page";
 import { prisma } from "@/lib/prisma";
 import { Prisma, Role } from "@prisma/client";
 import { workspaceEvents } from "@/lib/events/workspace-events";
+import {
+  NO_STORE_HEADERS,
+  readJsonBody,
+  verifySameOriginCsrf,
+} from "@/lib/security/api-guard";
+import { logStructured } from "@/lib/logger.mjs";
 
 interface RouteParams {
   params: Promise<{
@@ -16,14 +22,14 @@ interface RouteParams {
  * GET /api/workspaces/[workspaceId]/pages/[pageId]
  * Retrieves page details. Verifies that the page belongs to the workspace and the user has membership.
  */
-export async function GET(request: Request, { params }: RouteParams) {
+export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
     const { workspaceId, pageId } = await params;
     const authCheck = await checkWorkspaceAccess(workspaceId);
     if (!authCheck.success) {
       return NextResponse.json(
         { error: authCheck.error },
-        { status: authCheck.status }
+        { status: authCheck.status, headers: NO_STORE_HEADERS }
       );
     }
 
@@ -44,15 +50,18 @@ export async function GET(request: Request, { params }: RouteParams) {
     });
 
     if (!page || page.workspaceId !== workspaceId) {
-      return NextResponse.json({ error: "Page not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Page not found" },
+        { status: 404, headers: NO_STORE_HEADERS }
+      );
     }
 
-    return NextResponse.json({ page }, { status: 200 });
+    return NextResponse.json({ page }, { status: 200, headers: NO_STORE_HEADERS });
   } catch (error) {
-    console.error("[PAGE_GET_ERROR]", error);
+    logStructured("error", "PageAPI", "get_failed", { error });
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500, headers: NO_STORE_HEADERS }
     );
   }
 }
@@ -61,14 +70,17 @@ export async function GET(request: Request, { params }: RouteParams) {
  * PATCH /api/workspaces/[workspaceId]/pages/[pageId]
  * Updates a page's title and/or rich-text content in the workspace.
  */
-export async function PATCH(request: Request, { params }: RouteParams) {
+export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
+    const csrfError = verifySameOriginCsrf(request);
+    if (csrfError) return csrfError;
+
     const { workspaceId, pageId } = await params;
     const authCheck = await checkWorkspaceAccess(workspaceId);
     if (!authCheck.success) {
       return NextResponse.json(
         { error: authCheck.error },
-        { status: authCheck.status }
+        { status: authCheck.status, headers: NO_STORE_HEADERS }
       );
     }
 
@@ -77,7 +89,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     if (!canEdit) {
       return NextResponse.json(
         { error: "Forbidden: You do not have permission to edit documents in this workspace" },
-        { status: 403 }
+        { status: 403, headers: NO_STORE_HEADERS }
       );
     }
 
@@ -88,18 +100,23 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     });
 
     if (!existingPage || existingPage.workspaceId !== workspaceId) {
-      return NextResponse.json({ error: "Page not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Page not found" },
+        { status: 404, headers: NO_STORE_HEADERS }
+      );
     }
 
-    const body = await request.json();
-    const parseResult = updatePageSchema.safeParse(body);
+    const parsedBody = await readJsonBody(request, 2.5 * 1024 * 1024);
+    if (!parsedBody.ok) return parsedBody.response;
+
+    const parseResult = updatePageSchema.safeParse(parsedBody.data);
     if (!parseResult.success) {
       return NextResponse.json(
         {
           error: "Invalid input",
           issues: parseResult.error.flatten().fieldErrors,
         },
-        { status: 400 }
+        { status: 400, headers: NO_STORE_HEADERS }
       );
     }
 
@@ -139,13 +156,13 @@ export async function PATCH(request: Request, { params }: RouteParams) {
         message: "Page updated successfully",
         page: updatedPage,
       },
-      { status: 200 }
+      { status: 200, headers: NO_STORE_HEADERS }
     );
   } catch (error) {
-    console.error("[PAGE_PATCH_ERROR]", error);
+    logStructured("error", "PageAPI", "patch_failed", { error });
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500, headers: NO_STORE_HEADERS }
     );
   }
 }
@@ -154,14 +171,17 @@ export async function PATCH(request: Request, { params }: RouteParams) {
  * DELETE /api/workspaces/[workspaceId]/pages/[pageId]
  * Deletes a page and any nested descendants.
  */
-export async function DELETE(request: Request, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
+    const csrfError = verifySameOriginCsrf(request);
+    if (csrfError) return csrfError;
+
     const { workspaceId, pageId } = await params;
     const authCheck = await checkWorkspaceAccess(workspaceId);
     if (!authCheck.success) {
       return NextResponse.json(
         { error: authCheck.error },
-        { status: authCheck.status }
+        { status: authCheck.status, headers: NO_STORE_HEADERS }
       );
     }
 
@@ -174,7 +194,7 @@ export async function DELETE(request: Request, { params }: RouteParams) {
           error:
             "Forbidden: You do not have permission to delete pages in this workspace.",
         },
-        { status: 403 }
+        { status: 403, headers: NO_STORE_HEADERS }
       );
     }
 
@@ -184,7 +204,10 @@ export async function DELETE(request: Request, { params }: RouteParams) {
     });
 
     if (!existingPage || existingPage.workspaceId !== workspaceId) {
-      return NextResponse.json({ error: "Page not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Page not found" },
+        { status: 404, headers: NO_STORE_HEADERS }
+      );
     }
 
     await prisma.page.delete({
@@ -200,13 +223,13 @@ export async function DELETE(request: Request, { params }: RouteParams) {
 
     return NextResponse.json(
       { message: "Page deleted successfully" },
-      { status: 200 }
+      { status: 200, headers: NO_STORE_HEADERS }
     );
   } catch (error) {
-    console.error("[PAGE_DELETE_ERROR]", error);
+    logStructured("error", "PageAPI", "delete_failed", { error });
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500, headers: NO_STORE_HEADERS }
     );
   }
 }

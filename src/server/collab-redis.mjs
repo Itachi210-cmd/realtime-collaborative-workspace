@@ -10,6 +10,7 @@
 
 import crypto from 'node:crypto';
 import Redis from 'ioredis';
+import { redactUrlCredentials, validateRedisConfig } from '../lib/env.mjs';
 
 export const DEFAULT_REDIS_URL = 'redis://localhost:6379';
 export const CHANNEL_PREFIX = 'collab:room';
@@ -28,8 +29,20 @@ export const CHANNEL_PREFIX = 'collab:room';
 export function createCollabRedis(options = {}) {
   const enabled = options.enabled !== false && process.env.REDIS_ENABLED !== 'false';
   const rawUrl = options.redisUrl || process.env.REDIS_URL || DEFAULT_REDIS_URL;
+  const safeRedisUrl = redactUrlCredentials(rawUrl);
   const instanceId = options.instanceId || `collab-${crypto.randomUUID()}`;
   const prefix = options.channelPrefix || CHANNEL_PREFIX;
+
+  if (enabled && rawUrl !== 'disabled') {
+    const redisValidation = validateRedisConfig({
+      enabledEnv: options.enabled === false ? 'false' : process.env.REDIS_ENABLED,
+      urlEnv: options.redisUrl || process.env.REDIS_URL,
+      isProduction: process.env.NODE_ENV === 'production',
+    });
+    if (!redisValidation.valid) {
+      throw new Error(`[CollabRedis] ${redisValidation.error}`);
+    }
+  }
 
   if (!enabled || rawUrl === 'disabled') {
     console.log(`[CollabRedis] Redis pub/sub is disabled for instance "${instanceId}".`);
@@ -106,7 +119,7 @@ export function createCollabRedis(options = {}) {
     if (isConnected) return;
 
     try {
-      console.log(`[CollabRedis] Connecting to Redis at ${rawUrl} (instance: ${instanceId})...`);
+      console.log(`[CollabRedis] Connecting to Redis at ${safeRedisUrl} (instance: ${instanceId})...`);
 
       pubClient = new Redis(rawUrl, {
         ...defaultClientOptions,
@@ -130,8 +143,17 @@ export function createCollabRedis(options = {}) {
       subClient.on('error', (err) => {
         console.error(`[CollabRedis] Subscriber error on instance "${instanceId}":`, err.message);
       });
-      subClient.on('ready', () => {
+      subClient.on('ready', async () => {
         console.log(`[CollabRedis] Subscriber ready on instance "${instanceId}"`);
+        if (channelCallbacks.size > 0 && !isClosed) {
+          for (const channel of channelCallbacks.keys()) {
+            try {
+              await subClient.subscribe(channel);
+            } catch (err) {
+              console.error(`[CollabRedis] Failed re-subscribing to "${channel}" on reconnect:`, err.message);
+            }
+          }
+        }
       });
 
       // Centralized message dispatcher for the dedicated subscriber
@@ -213,7 +235,7 @@ export function createCollabRedis(options = {}) {
       isConnected = true;
       console.log(`[CollabRedis] Successfully connected to Redis (instance: ${instanceId})`);
     } catch (err) {
-      console.error(`[CollabRedis] Fatal connection failure to Redis at ${rawUrl}:`, err.message);
+      console.error(`[CollabRedis] Fatal connection failure to Redis at ${safeRedisUrl}:`, err.message);
       throw err;
     }
   }

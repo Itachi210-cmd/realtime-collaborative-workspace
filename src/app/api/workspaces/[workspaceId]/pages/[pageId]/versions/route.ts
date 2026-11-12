@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { checkWorkspaceAccess } from "@/lib/auth/workspace-auth";
 import { prisma } from "@/lib/prisma";
 import { Role } from "@prisma/client";
@@ -7,6 +7,12 @@ import {
   createVersionSnapshot,
   listVersionSnapshots,
 } from "@/server/version-snapshot-service.mjs";
+import {
+  NO_STORE_HEADERS,
+  enforceRateLimit,
+  verifySameOriginCsrf,
+} from "@/lib/security/api-guard";
+import { logStructured } from "@/lib/logger.mjs";
 
 interface RouteParams {
   params: Promise<{
@@ -15,17 +21,12 @@ interface RouteParams {
   }>;
 }
 
-const NO_STORE_HEADERS = {
-  "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-  Pragma: "no-cache",
-};
-
 /**
  * GET /api/workspaces/[workspaceId]/pages/[pageId]/versions
- * Lists all version snapshots for a page in reverse chronological order (newest first).
+ * Lists version snapshots for a page in reverse chronological order (newest first).
  * Excludes heavy binary CRDT payload. Accessible to all authorized workspace members.
  */
-export async function GET(request: Request, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { workspaceId, pageId } = await params;
 
@@ -51,12 +52,19 @@ export async function GET(request: Request, { params }: RouteParams) {
       );
     }
 
+    const rawLimit = Number.parseInt(
+      request.nextUrl.searchParams.get("limit") || "50",
+      10
+    );
+    const limit =
+      Number.isInteger(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 100) : 50;
+
     // 3. Retrieve snapshots via dedicated snapshot service
-    const versions = await listVersionSnapshots(pageId);
+    const versions = await listVersionSnapshots(pageId, { limit });
 
     return NextResponse.json({ versions }, { status: 200, headers: NO_STORE_HEADERS });
   } catch (error) {
-    console.error("[VERSIONS_GET_ERROR]", error);
+    logStructured("error", "VersionsAPI", "list_failed", { error });
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500, headers: NO_STORE_HEADERS }
@@ -69,8 +77,11 @@ export async function GET(request: Request, { params }: RouteParams) {
  * Creates a manual version snapshot of the current document state.
  * Only OWNER and EDITOR roles can create snapshots; COMMENTER and VIEWER receive 403 Forbidden.
  */
-export async function POST(request: Request, { params }: RouteParams) {
+export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
+    const csrfError = verifySameOriginCsrf(request);
+    if (csrfError) return csrfError;
+
     const { workspaceId, pageId } = await params;
 
     // 1. Authenticate user & verify workspace membership
@@ -92,6 +103,14 @@ export async function POST(request: Request, { params }: RouteParams) {
         { status: 403, headers: NO_STORE_HEADERS }
       );
     }
+
+    const rateLimited = enforceRateLimit(request, {
+      keyPrefix: "version_create",
+      limit: 30,
+      windowMs: 60_000,
+      identifier: session.userId,
+    });
+    if (rateLimited) return rateLimited;
 
     // 3. Verify page exists and belongs to this workspace (prevent IDOR)
     const page = await prisma.page.findUnique({

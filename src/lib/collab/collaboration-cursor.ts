@@ -39,6 +39,13 @@ declare module "@tiptap/core" {
   }
 }
 
+interface AwarenessLike {
+  on: (event: string, cb: () => void) => void;
+  off: (event: string, cb: () => void) => void;
+}
+
+const awarenessCleanupMap = new WeakMap<object, { awareness: AwarenessLike; handler: () => void }>();
+
 export const CollaborationCursor = Extension.create<CollabCursorOptions>({
   name: "collaborationCursor",
 
@@ -93,11 +100,21 @@ export const CollaborationCursor = Extension.create<CollabCursorOptions>({
     return [
       yCursorPlugin(
         (() => {
+          const prev = this.editor ? awarenessCleanupMap.get(this.editor) : null;
+          if (prev) {
+            prev.awareness.off("update", prev.handler);
+            awarenessCleanupMap.delete(this.editor);
+          }
+
           awareness.setLocalStateField("user", this.options.user);
-          this.storage.users = awarenessStatesToArray(awareness.states);
-          awareness.on("update", () => {
+          const updateUsers = () => {
             this.storage.users = awarenessStatesToArray(awareness.states);
-          });
+          };
+          updateUsers();
+          awareness.on("update", updateUsers);
+          if (this.editor) {
+            awarenessCleanupMap.set(this.editor, { awareness, handler: updateUsers });
+          }
           return awareness;
         })(),
         {
@@ -106,5 +123,14 @@ export const CollaborationCursor = Extension.create<CollabCursorOptions>({
         }
       ),
     ];
+  },
+
+  onDestroy() {
+    if (!this.editor) return;
+    const entry = awarenessCleanupMap.get(this.editor);
+    if (entry) {
+      entry.awareness.off("update", entry.handler);
+      awarenessCleanupMap.delete(this.editor);
+    }
   },
 });

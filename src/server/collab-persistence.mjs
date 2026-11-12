@@ -23,6 +23,7 @@ import * as awarenessProtocol from 'y-protocols/awareness';
 import { getSchema } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import * as yTiptap from '@tiptap/y-tiptap';
+import { getDatabaseUrl } from '../lib/env.mjs';
 
 // Persistence Configuration Constants
 export const DEBOUNCE_DELAY_MS = 1500;
@@ -43,12 +44,16 @@ function getTipTapSchema() {
 }
 
 // Database Connection Management (reuses Prisma 7 adapter pattern)
-const defaultConnectionString =
-  process.env.DATABASE_URL ||
-  'postgresql://postgres:postgres@localhost:5432/collab_workspace?schema=public';
-
 let sharedPool = null;
 let sharedPrisma = null;
+
+function resolveCollabPoolMax() {
+  const parsed = Number.parseInt(process.env.PG_POOL_MAX || '', 10);
+  if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 50) {
+    return parsed;
+  }
+  return process.env.NODE_ENV === 'production' ? 5 : 10;
+}
 
 /**
  * Returns the PrismaClient instance (allows custom injection for testing).
@@ -59,7 +64,17 @@ let sharedPrisma = null;
 export function getPrismaClient(customPrisma = null) {
   if (customPrisma) return customPrisma;
   if (!sharedPrisma || (sharedPool && sharedPool.ended)) {
-    sharedPool = new Pool({ connectionString: defaultConnectionString });
+    const connectionString = getDatabaseUrl();
+    sharedPool = new Pool({
+      connectionString,
+      max: resolveCollabPoolMax(),
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 10_000,
+      allowExitOnIdle: true,
+    });
+    sharedPool.on('error', (err) => {
+      console.error('[CollabPersistence] Unexpected idle PG pool error:', err.message);
+    });
     const adapter = new PrismaPg(sharedPool);
     sharedPrisma = new PrismaClient({
       adapter,
@@ -243,10 +258,17 @@ async function executeSaveDirect(pageId, doc, options = {}) {
   // Optional distributed persistence lock across multiple server instances
   let distLock = null;
   if (options.collabRedis && typeof options.collabRedis.acquirePersistenceLock === 'function') {
-    try {
-      distLock = await options.collabRedis.acquirePersistenceLock(pageId, 10000);
-    } catch (err) {
-      console.warn(`[CollabPersistence] Persistence lock acquisition warning for "${pageId}":`, err.message);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        distLock = await options.collabRedis.acquirePersistenceLock(pageId, 10000);
+        if (!distLock || distLock.acquired || distLock.error) {
+          break;
+        }
+      } catch (err) {
+        console.warn(`[CollabPersistence] Persistence lock acquisition warning for "${pageId}":`, err.message);
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 120));
     }
   }
 
@@ -498,7 +520,7 @@ function getDeterministicCollaboratorColor(userId) {
  * @param {Set<number>} [allowedClientIds] Registered client IDs for this connection
  * @returns {Uint8Array} Sanitized awareness update binary payload
  */
-export function sanitizeAwarenessUpdate(updateBytes, authenticatedUser) {
+export function sanitizeAwarenessUpdate(updateBytes, authenticatedUser, options = {}) {
   if (!updateBytes || !(updateBytes instanceof Uint8Array)) {
     return updateBytes;
   }
@@ -506,9 +528,15 @@ export function sanitizeAwarenessUpdate(updateBytes, authenticatedUser) {
     throw new Error('[CollabSecurity] Cannot sanitize awareness update: Missing authenticated user');
   }
 
+  const maxStatesPerUpdate = options.maxStatesPerUpdate ?? 16;
+  let processedStates = 0;
   const deterministicColor = getDeterministicCollaboratorColor(authenticatedUser.userId);
 
   return awarenessProtocol.modifyAwarenessUpdate(updateBytes, (state) => {
+    processedStates += 1;
+    if (processedStates > maxStatesPerUpdate) {
+      throw new Error('[CollabSecurity] Awareness update exceeds per-message client state limit');
+    }
     // If state is null or primitive (e.g. client disconnect signal), preserve it
     if (!state || typeof state !== 'object') {
       return state;
