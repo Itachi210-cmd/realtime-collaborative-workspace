@@ -17,6 +17,7 @@ import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { useToast } from "@/components/ui/Toast";
+import { useCurrentUser } from "@/lib/auth/useCurrentUser";
 import {
   PageItem,
   getWorkspacePages,
@@ -141,13 +142,22 @@ function PageTreeInner({ workspaceId, userRole }: PageTreeProps) {
 
   const canManagePages = role === "OWNER" || role === "EDITOR";
 
+  const { user } = useCurrentUser();
+  const userRef = useRef(user);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
+  // Track notified comment IDs to avoid showing duplicate notifications
+  const notifiedCommentIdsRef = useRef<Set<string>>(new Set());
+
   // Stable reference to current active pageId to prevent reconnection churn on navigation
   const currentPageIdRef = useRef(currentPageId);
   useEffect(() => {
     currentPageIdRef.current = currentPageId;
   }, [currentPageId]);
 
-  // Real-time page hierarchy synchronization via Server-Sent Events (SSE)
+  // Real-time page hierarchy & comments synchronization via Server-Sent Events (SSE)
   useEffect(() => {
     if (!workspaceId) return;
     let isMounted = true;
@@ -172,7 +182,7 @@ function PageTreeInner({ workspaceId, userRole }: PageTreeProps) {
     // Initial page list load
     fetchLatestPages();
 
-    // 1. Establish SSE connection for real-time workspace page mutations
+    // 1. Establish SSE connection for real-time workspace mutations
     let eventSource: EventSource | null = null;
     try {
       eventSource = new EventSource(`/api/workspaces/${workspaceId}/pages/events`);
@@ -181,7 +191,54 @@ function PageTreeInner({ workspaceId, userRole }: PageTreeProps) {
         if (!e.data) return;
         try {
           const event = JSON.parse(e.data);
-          if (event.type === "PAGE_CREATED" && event.page) {
+
+          // Broadcast all workspace events across the client app
+          window.dispatchEvent(
+            new CustomEvent("workspace-sse-event", { detail: event })
+          );
+
+          if (event.type === "COMMENT_CREATED" && event.comment) {
+            const authorId = event.comment.authorId;
+            const commentId = event.comment.id;
+            const currentUserId = userRef.current?.id;
+
+            // Do not notify the author about their own comment
+            const isSelf = Boolean(currentUserId && currentUserId === authorId);
+
+            if (!isSelf && !notifiedCommentIdsRef.current.has(commentId)) {
+              notifiedCommentIdsRef.current.add(commentId);
+
+              const authorName = event.comment.author?.name || "A collaborator";
+              const pageTitle = event.pageTitle || "Document";
+              const rawBody = event.comment.body || "";
+              const preview =
+                rawBody.length > 70 ? `${rawBody.slice(0, 67)}...` : rawBody;
+
+              addToast({
+                message: `New comment • ${authorName}`,
+                description: `"${preview}" on ${pageTitle}`,
+                variant: "info",
+                actionText: "View comment",
+                duration: 7000,
+                onClick: () => {
+                  const targetPageId = event.pageId;
+                  const isCurrentlyOnPage = currentPageIdRef.current === targetPageId;
+
+                  if (isCurrentlyOnPage) {
+                    window.dispatchEvent(
+                      new CustomEvent("open-comment-panel", {
+                        detail: { pageId: targetPageId, commentId },
+                      })
+                    );
+                  } else {
+                    router.push(
+                      `/workspace/${workspaceId}?page=${targetPageId}&openComments=true&commentId=${commentId}`
+                    );
+                  }
+                },
+              });
+            }
+          } else if (event.type === "PAGE_CREATED" && event.page) {
             setRawPages((prev) => {
               // Avoid duplicates if already present from optimistic local update
               if (prev.some((p) => p.id === event.page.id)) {

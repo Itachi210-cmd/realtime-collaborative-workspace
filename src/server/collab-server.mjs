@@ -230,21 +230,31 @@ export function createCollabServer(options = {}) {
     cleanupGraceMs = graceCheck.value ?? 30000;
   }
 
-  const defaultAllowedOrigins = [
+  const baseAllowedOrigins = [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
     'http://localhost:3001',
     'http://127.0.0.1:3001',
   ];
   if (process.env.NEXT_PUBLIC_APP_URL) {
-    defaultAllowedOrigins.push(process.env.NEXT_PUBLIC_APP_URL);
+    baseAllowedOrigins.push(process.env.NEXT_PUBLIC_APP_URL);
+  }
+  if (process.env.RENDER_EXTERNAL_URL) {
+    baseAllowedOrigins.push(process.env.RENDER_EXTERNAL_URL);
   }
 
-  const rawOrigins = options.allowedOrigins
-    ? options.allowedOrigins.join(',')
-    : (process.env.COLLAB_ALLOWED_ORIGINS || defaultAllowedOrigins.join(','));
+  const originsSources = [];
+  if (options.allowedOrigins && Array.isArray(options.allowedOrigins)) {
+    originsSources.push(...options.allowedOrigins);
+  } else if (process.env.COLLAB_ALLOWED_ORIGINS) {
+    originsSources.push(...process.env.COLLAB_ALLOWED_ORIGINS.split(','));
+  }
+  if (!options.allowedOrigins) {
+    originsSources.push(...baseAllowedOrigins);
+  }
+
   const allowedOrigins = [
-    ...new Set(rawOrigins.split(',').map(normalizeOrigin).filter(Boolean)),
+    ...new Set(originsSources.map(normalizeOrigin).filter(Boolean)),
   ];
 
   const internalRpcSecret =
@@ -255,7 +265,10 @@ export function createCollabServer(options = {}) {
   const allowExternalRpc = options.allowExternalRpc ?? false;
 
   const instanceId = options.instanceId || `collab-${crypto.randomUUID()}`;
-  const enableRedis = options.enableRedis !== false && process.env.REDIS_ENABLED !== 'false';
+  const enableRedis =
+    options.enableRedis !== undefined
+      ? Boolean(options.enableRedis)
+      : process.env.REDIS_ENABLED !== 'false';
   const redisUrl = options.redisUrl || process.env.REDIS_URL || 'redis://localhost:6379';
   const collabRedis = options.collabRedis || createCollabRedis({
     redisUrl,
@@ -950,12 +963,63 @@ export function createCollabServer(options = {}) {
     heartbeatInterval.unref();
   }
 
+  function isOriginAuthorized(rawOrigin, req, socket) {
+    if (!rawOrigin) return true;
+
+    const normalizedReqOrigin = normalizeOrigin(rawOrigin);
+    if (!normalizedReqOrigin) return false;
+
+    // 1. Direct match in static / configured allowlist
+    if (allowedOrigins.includes(normalizedReqOrigin)) {
+      return true;
+    }
+
+    // 2. Validate forwarded headers ONLY from the known reverse-proxy ingress (loopback)
+    const remoteAddress = socket?.remoteAddress;
+    const isKnownProxyIngress =
+      remoteAddress === '127.0.0.1' ||
+      remoteAddress === '::1' ||
+      remoteAddress === '::ffff:127.0.0.1';
+
+    if (isKnownProxyIngress) {
+      // In production behind local supervisor proxy (prod-entrypoint.mjs),
+      // verify forwarded host against authorized domains.
+      // Do NOT blindly trust arbitrary client-supplied forwarded headers.
+      const forwardedHost = (req.headers['x-forwarded-host'] || req.headers.host || '').trim();
+      const forwardedProto = (req.headers['x-forwarded-proto'] || 'https').trim();
+
+      if (forwardedHost) {
+        const candidateOrigins = [
+          normalizeOrigin(`${forwardedProto}://${forwardedHost}`),
+          normalizeOrigin(`https://${forwardedHost}`),
+          normalizeOrigin(`http://${forwardedHost}`),
+        ];
+
+        if (candidateOrigins.includes(normalizedReqOrigin)) {
+          const hostOnly = forwardedHost.split(':')[0].toLowerCase();
+          const isAuthorizedHost = allowedOrigins.some((allowed) => {
+            try {
+              return new URL(allowed).hostname.toLowerCase() === hostOnly;
+            } catch {
+              return false;
+            }
+          });
+          if (isAuthorizedHost) {
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
   // HTTP Upgrade Handler: Origin validation and URL path inspection
   server.on('upgrade', (req, socket, head) => {
     const origin = req.headers['origin'];
 
     // Reject untrusted origin if present
-    if (origin && !allowedOrigins.includes(origin)) {
+    if (!isOriginAuthorized(origin, req, socket)) {
       console.warn(`[CollabServer] Upgrade rejected: Untrusted Origin "${origin}"`);
       socket.write(
         'HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\nForbidden: Untrusted Origin\r\n'

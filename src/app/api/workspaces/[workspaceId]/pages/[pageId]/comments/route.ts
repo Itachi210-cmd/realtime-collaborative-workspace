@@ -10,6 +10,7 @@ import {
   verifySameOriginCsrf,
 } from "@/lib/security/api-guard";
 import { logStructured } from "@/lib/logger.mjs";
+import { workspaceEvents } from "@/lib/events/workspace-events";
 
 interface RouteParams {
   params: Promise<{
@@ -119,7 +120,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // 3. Verify page exists and belongs to this workspace (prevent IDOR)
     const page = await prisma.page.findUnique({
       where: { id: pageId },
-      select: { id: true, workspaceId: true },
+      select: { id: true, title: true, workspaceId: true },
     });
 
     if (!page || page.workspaceId !== workspaceId) {
@@ -155,6 +156,29 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       include: {
         author: {
           select: { id: true, name: true, email: true },
+        },
+      },
+    });
+
+    // 6. Broadcast real-time comment creation event via SSE
+    workspaceEvents.emitWorkspaceEvent(workspaceId, {
+      type: "COMMENT_CREATED",
+      workspaceId,
+      pageId: page.id,
+      pageTitle: page.title,
+      comment: {
+        id: comment.id,
+        pageId: comment.pageId,
+        authorId: comment.authorId,
+        body: comment.body,
+        anchor: comment.anchor,
+        createdAt: comment.createdAt.toISOString(),
+        updatedAt: comment.updatedAt.toISOString(),
+        resolvedAt: comment.resolvedAt ? comment.resolvedAt.toISOString() : null,
+        author: {
+          id: comment.author.id,
+          name: comment.author.name,
+          email: comment.author.email,
         },
       },
     });

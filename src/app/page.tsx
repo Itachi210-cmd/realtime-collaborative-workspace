@@ -15,7 +15,6 @@ import {
   Menu,
   X,
 } from "lucide-react";
-import { Button } from "@/components/ui/Button";
 
 const emptySubscribe = () => () => {};
 const themeListeners = new Set<() => void>();
@@ -141,15 +140,17 @@ export default function HomePage() {
               {theme === "dark" ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
             </button>
           )}
-          <Link href="/login">
-            <Button variant="ghost" size="sm" className="text-xs">
-              Sign in
-            </Button>
+          <Link
+            href="/login"
+            className="inline-flex items-center justify-center font-medium rounded-md transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 text-[var(--text-primary)] hover:bg-[var(--bg-hover)] text-xs px-2.5 py-1 gap-1.5 h-7 cursor-pointer"
+          >
+            Sign in
           </Link>
-          <Link href="/signup">
-            <Button variant="primary" size="sm" className="text-xs shadow-2xs">
-              Get started
-            </Button>
+          <Link
+            href="/signup"
+            className="inline-flex items-center justify-center font-medium rounded-md transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] border border-[var(--accent)] text-xs px-2.5 py-1 gap-1.5 h-7 shadow-2xs cursor-pointer"
+          >
+            Get started
           </Link>
         </div>
 
@@ -199,15 +200,19 @@ export default function HomePage() {
             Dashboard
           </Link>
           <div className="pt-2 flex flex-col gap-2 border-t border-[var(--border-subtle)]">
-            <Link href="/login" onClick={() => setMobileMenuOpen(false)}>
-              <Button variant="secondary" size="sm" className="w-full">
-                Sign in
-              </Button>
+            <Link
+              href="/login"
+              onClick={() => setMobileMenuOpen(false)}
+              className="inline-flex items-center justify-center font-medium rounded-md transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 bg-[var(--bg-raised)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] text-xs px-2.5 py-1 gap-1.5 h-7 w-full cursor-pointer"
+            >
+              Sign in
             </Link>
-            <Link href="/signup" onClick={() => setMobileMenuOpen(false)}>
-              <Button variant="primary" size="sm" className="w-full">
-                Get started
-              </Button>
+            <Link
+              href="/signup"
+              onClick={() => setMobileMenuOpen(false)}
+              className="inline-flex items-center justify-center font-medium rounded-md transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] border border-[var(--accent)] shadow-xs text-xs px-2.5 py-1 gap-1.5 h-7 w-full cursor-pointer"
+            >
+              Get started
             </Link>
           </div>
         </div>
@@ -229,16 +234,18 @@ export default function HomePage() {
         </p>
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
-          <Link href="/signup" className="w-full sm:w-auto">
-            <Button variant="primary" size="lg" className="w-full sm:w-auto gap-2 px-5 shadow-xs">
-              <span>Get started free</span>
-              <ArrowRight className="w-4 h-4" />
-            </Button>
+          <Link
+            href="/signup"
+            className="inline-flex items-center justify-center font-medium rounded-md transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] border border-[var(--accent)] shadow-xs text-sm px-5 py-2 gap-2 h-9 w-full sm:w-auto cursor-pointer"
+          >
+            <span>Get started free</span>
+            <ArrowRight className="w-4 h-4" />
           </Link>
-          <Link href="/dashboard" className="w-full sm:w-auto">
-            <Button variant="outline" size="lg" className="w-full sm:w-auto px-5">
-              Explore workspace
-            </Button>
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center justify-center font-medium rounded-md transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] text-sm px-5 py-2 gap-2 h-9 w-full sm:w-auto cursor-pointer"
+          >
+            Explore workspace
           </Link>
         </div>
       </section>
@@ -413,15 +420,17 @@ export default function HomePage() {
         </div>
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-          <Link href="/signup" className="w-full sm:w-auto">
-            <Button variant="primary" size="md" className="w-full sm:w-auto px-5 shadow-xs">
-              Create workspace
-            </Button>
+          <Link
+            href="/signup"
+            className="inline-flex items-center justify-center font-medium rounded-md transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] border border-[var(--accent)] shadow-xs text-sm px-5 py-1.5 gap-2 h-8 w-full sm:w-auto cursor-pointer"
+          >
+            Create workspace
           </Link>
-          <Link href="/login" className="w-full sm:w-auto">
-            <Button variant="secondary" size="md" className="w-full sm:w-auto px-5">
-              Sign in to existing space
-            </Button>
+          <Link
+            href="/login"
+            className="inline-flex items-center justify-center font-medium rounded-md transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 bg-[var(--bg-raised)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] text-sm px-5 py-1.5 gap-2 h-8 w-full sm:w-auto cursor-pointer"
+          >
+            Sign in to existing space
           </Link>
         </div>
       </section>

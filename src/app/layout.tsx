@@ -42,7 +42,10 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="min-h-full flex flex-col bg-[var(--bg-app)] text-[var(--text-primary)] transition-colors duration-150">
+      <body
+        suppressHydrationWarning
+        className="min-h-full flex flex-col bg-[var(--bg-app)] text-[var(--text-primary)] transition-colors duration-150"
+      >
         <ToastProvider>{children}</ToastProvider>
       </body>
     </html>

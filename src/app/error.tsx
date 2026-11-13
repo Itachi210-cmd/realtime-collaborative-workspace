@@ -44,11 +44,12 @@ export default function ErrorBoundary({
             <span>Try Again</span>
           </Button>
 
-          <Link href="/dashboard">
-            <Button variant="primary" size="sm">
-              <Home className="w-3.5 h-3.5 mr-1" />
-              <span>Back to Dashboard</span>
-            </Button>
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center justify-center font-medium rounded-md transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] border border-[var(--accent)] text-xs px-2.5 py-1 gap-1.5 h-7 shadow-xs cursor-pointer"
+          >
+            <Home className="w-3.5 h-3.5 mr-1" />
+            <span>Back to Dashboard</span>
           </Link>
         </div>
       </div>

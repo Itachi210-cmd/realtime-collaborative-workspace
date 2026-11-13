@@ -1,5 +1,6 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
+import type { NextRequest } from "next/server";
 import { getAuthSecretKey } from "@/lib/env.mjs";
 
 export const SESSION_COOKIE_NAME = "collab_session";
@@ -89,10 +90,26 @@ export async function clearSessionCookie(): Promise<void> {
 
 /**
  * Retrieves the current verified session from the incoming cookies in Server Context.
+ * Accepts an optional NextRequest for direct cookie resolution in route handlers and tests.
  */
-export async function getCurrentSession(): Promise<SessionPayload | null> {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+export async function getCurrentSession(
+  request?: NextRequest
+): Promise<SessionPayload | null> {
+  let token: string | undefined;
+
+  if (request) {
+    token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
+  }
+
+  if (!token) {
+    try {
+      const cookieStore = await cookies();
+      token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+    } catch {
+      // Invariant: outside request scope or cookies() unavailable
+    }
+  }
+
   if (!token) return null;
   return verifySessionToken(token);
 }

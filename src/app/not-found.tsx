@@ -1,7 +1,6 @@
 import React from "react";
 import Link from "next/link";
 import { FileQuestion, ArrowLeft, Home } from "lucide-react";
-import { Button } from "@/components/ui/Button";
 
 export default function NotFound() {
   return (
@@ -24,18 +23,20 @@ export default function NotFound() {
         </div>
 
         <div className="flex items-center justify-center gap-2 pt-2 border-t border-[#e9e9e7]">
-          <Link href="/">
-            <Button variant="secondary" size="sm">
-              <ArrowLeft className="w-3.5 h-3.5 mr-1" />
-              <span>Home</span>
-            </Button>
+          <Link
+            href="/"
+            className="inline-flex items-center justify-center font-medium rounded-md transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 bg-[var(--bg-raised)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] text-xs px-2.5 py-1 gap-1.5 h-7 cursor-pointer"
+          >
+            <ArrowLeft className="w-3.5 h-3.5 mr-1" />
+            <span>Home</span>
           </Link>
 
-          <Link href="/dashboard">
-            <Button variant="primary" size="sm">
-              <Home className="w-3.5 h-3.5 mr-1" />
-              <span>Go to Dashboard</span>
-            </Button>
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center justify-center font-medium rounded-md transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] border border-[var(--accent)] text-xs px-2.5 py-1 gap-1.5 h-7 shadow-xs cursor-pointer"
+          >
+            <Home className="w-3.5 h-3.5 mr-1" />
+            <span>Go to Dashboard</span>
           </Link>
         </div>
       </div>

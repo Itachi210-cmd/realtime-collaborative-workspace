@@ -27,7 +27,10 @@ export const CHANNEL_PREFIX = 'collab:room';
  * @returns {Object} Redis manager instance
  */
 export function createCollabRedis(options = {}) {
-  const enabled = options.enabled !== false && process.env.REDIS_ENABLED !== 'false';
+  const enabled =
+    options.enabled !== undefined
+      ? Boolean(options.enabled)
+      : process.env.REDIS_ENABLED !== 'false';
   const rawUrl = options.redisUrl || process.env.REDIS_URL || DEFAULT_REDIS_URL;
   const safeRedisUrl = redactUrlCredentials(rawUrl);
   const instanceId = options.instanceId || `collab-${crypto.randomUUID()}`;
@@ -35,7 +38,7 @@ export function createCollabRedis(options = {}) {
 
   if (enabled && rawUrl !== 'disabled') {
     const redisValidation = validateRedisConfig({
-      enabledEnv: options.enabled === false ? 'false' : process.env.REDIS_ENABLED,
+      enabledEnv: options.enabled !== undefined ? String(options.enabled) : process.env.REDIS_ENABLED,
       urlEnv: options.redisUrl || process.env.REDIS_URL,
       isProduction: process.env.NODE_ENV === 'production',
     });

@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, AlertCircle, Eye, EyeOff, Sun, Moon, Mail, Lock, User } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { AuthVisual } from "@/components/auth/AuthVisual";
-import { sanitizeCallbackUrl } from "@/lib/security/api-guard";
+import { sanitizeCallbackUrl } from "@/lib/security/url";
 
 const emptySubscribe = () => () => {};
 const themeListeners = new Set<() => void>();
@@ -104,8 +104,7 @@ function SignupForm() {
         return;
       }
 
-      router.push(callbackUrl);
-      router.refresh();
+      window.location.href = callbackUrl;
     } catch {
       setGeneralError("Network connection error. Please try again.");
       setIsLoading(false);
@@ -113,9 +112,9 @@ function SignupForm() {
   };
 
   return (
-    <div className="w-full max-w-5xl mx-auto my-auto bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-2xl sm:rounded-3xl shadow-lg overflow-hidden grid grid-cols-1 lg:grid-cols-12 min-h-[580px] relative z-10">
+    <div className="w-full max-w-md lg:max-w-5xl mx-auto my-auto bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-2xl sm:rounded-3xl shadow-lg overflow-hidden grid grid-cols-1 lg:grid-cols-12 min-h-0 lg:min-h-[580px] relative z-10">
       {/* Left Column: Branding, Heading, Narrative & Custom Visual */}
-      <div className="lg:col-span-7 h-full">
+      <div className="hidden lg:block lg:col-span-7 h-full">
         <AuthVisual
           title="Craft ideas, collectively."
           description="Join your team in a distraction-free editorial environment designed for real-time writing, feedback, and publishing."
@@ -352,7 +351,7 @@ export default function SignupPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--bg-app)] flex flex-col items-center justify-center p-4 sm:p-6 lg:p-10 transition-colors duration-150 relative overflow-hidden">
+    <div className="min-h-screen bg-[var(--bg-app)] flex flex-col items-center justify-center p-4 sm:p-6 lg:p-10 transition-colors duration-150 relative overflow-x-hidden overflow-y-auto">
       {/* Decorative Editorial Background Geometric Arcs (Matching Login) */}
       <div className="absolute -top-28 -right-28 w-96 h-96 rounded-full border border-[var(--accent)]/15 bg-[var(--accent)]/[0.02] pointer-events-none" />
       <div className="absolute -bottom-28 -left-28 w-96 h-96 rounded-full border border-[var(--border-strong)]/20 bg-[var(--bg-hover)]/20 pointer-events-none" />

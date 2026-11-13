@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   MessageSquare,
   X,
@@ -20,6 +20,7 @@ import {
   deleteComment,
 } from "@/lib/api/comments";
 import { useToast } from "@/components/ui/Toast";
+import { WorkspacePageEvent } from "@/lib/events/workspace-events";
 
 interface CommentPanelProps {
   workspaceId: string;
@@ -68,7 +69,8 @@ export function CommentPanel({
 
       try {
         const data = await getPageComments(workspaceId, pageId, signal);
-        setComments(data);
+        const unique = Array.from(new Map(data.map((c) => [c.id, c])).values());
+        setComments(unique);
       } catch (err: unknown) {
         if (err instanceof DOMException && err.name === "AbortError") return;
         const msg = err instanceof Error ? err.message : "Failed to load comments";
@@ -90,7 +92,8 @@ export function CommentPanel({
       try {
         const data = await getPageComments(workspaceId, pageId, controller.signal);
         if (!ignore) {
-          setComments(data);
+          const unique = Array.from(new Map(data.map((c) => [c.id, c])).values());
+          setComments(unique);
           setError(null);
           setIsLoading(false);
         }
@@ -109,6 +112,151 @@ export function CommentPanel({
     return () => {
       ignore = true;
       controller.abort();
+    };
+  }, [workspaceId, pageId]);
+
+  // Target comment highlighting from URL or notification click
+  const [highlightedCommentId, setHighlightedCommentId] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return new URLSearchParams(window.location.search).get("commentId");
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    const handleOpenWithTarget = (e: Event) => {
+      const customEvent = e as CustomEvent<{ pageId?: string; commentId?: string }>;
+      if (customEvent.detail?.commentId) {
+        setHighlightedCommentId(customEvent.detail.commentId);
+      }
+    };
+
+    window.addEventListener("open-comment-panel", handleOpenWithTarget);
+    return () => {
+      window.removeEventListener("open-comment-panel", handleOpenWithTarget);
+    };
+  }, []);
+
+  // Smooth scroll to highlighted comment when present
+  useEffect(() => {
+    if (!highlightedCommentId) return;
+
+    const timer = setTimeout(() => {
+      const el = document.getElementById(`comment-${highlightedCommentId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    }, 150);
+
+    const clearTimer = setTimeout(() => {
+      setHighlightedCommentId(null);
+    }, 4500);
+
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(clearTimer);
+    };
+  }, [highlightedCommentId, comments]);
+
+  // Real-time comment event synchronization via workspace SSE stream
+  useEffect(() => {
+    const handleWorkspaceEvent = (e: Event) => {
+      const customEvent = e as CustomEvent<WorkspacePageEvent>;
+      const event = customEvent.detail;
+      if (!event) return;
+
+      if (event.type === "COMMENT_CREATED" && event.pageId === pageId) {
+        setComments((prev) => {
+          // Avoid duplicates if already present from optimistic local author submit
+          if (prev.some((c) => c.id === event.comment.id)) {
+            return prev;
+          }
+          const incoming: CommentItemData = {
+            id: event.comment.id,
+            pageId: event.comment.pageId,
+            authorId: event.comment.authorId,
+            body: event.comment.body,
+            anchor: event.comment.anchor,
+            createdAt: event.comment.createdAt,
+            updatedAt: event.comment.updatedAt,
+            resolvedAt: event.comment.resolvedAt || null,
+            author: {
+              id: event.comment.author.id,
+              name: event.comment.author.name,
+              email: event.comment.author.email || "",
+            },
+          };
+          const next = [...prev, incoming];
+          // Preserve createdAt ascending order
+          next.sort(
+            (a, b) =>
+              new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          );
+          return next;
+        });
+      } else if (event.type === "COMMENT_UPDATED" && event.pageId === pageId) {
+        setComments((prev) =>
+          prev.map((c) =>
+            c.id === event.comment.id
+              ? {
+                  ...c,
+                  ...(event.comment.body !== undefined
+                    ? { body: event.comment.body }
+                    : {}),
+                  ...(event.comment.resolvedAt !== undefined
+                    ? {
+                        resolvedAt: event.comment.resolvedAt || null,
+                      }
+                    : {}),
+                  updatedAt: event.comment.updatedAt,
+                }
+              : c
+          )
+        );
+      } else if (event.type === "COMMENT_DELETED" && event.pageId === pageId) {
+        setComments((prev) => prev.filter((c) => c.id !== event.commentId));
+      }
+    };
+
+    window.addEventListener("workspace-sse-event", handleWorkspaceEvent);
+    return () => {
+      window.removeEventListener("workspace-sse-event", handleWorkspaceEvent);
+    };
+  }, [pageId]);
+
+  // Revalidate on tab focus or visibility change to ensure no missed events across network drops
+  useEffect(() => {
+    const handleRevalidate = () => {
+      if (document.visibilityState === "visible") {
+        getPageComments(workspaceId, pageId)
+          .then((fresh) => {
+            setComments((prev) => {
+              const map = new Map<string, CommentItemData>();
+              for (const c of fresh) {
+                map.set(c.id, c);
+              }
+              for (const c of prev) {
+                if (!map.has(c.id)) {
+                  map.set(c.id, c);
+                }
+              }
+              const merged = Array.from(map.values());
+              merged.sort(
+                (a, b) =>
+                  new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+              );
+              return merged;
+            });
+          })
+          .catch(() => {});
+      }
+    };
+
+    window.addEventListener("focus", handleRevalidate);
+    document.addEventListener("visibilitychange", handleRevalidate);
+    return () => {
+      window.removeEventListener("focus", handleRevalidate);
+      document.removeEventListener("visibilitychange", handleRevalidate);
     };
   }, [workspaceId, pageId]);
 
@@ -140,7 +288,13 @@ export function CommentPanel({
     setSubmitError(null);
     try {
       const created = await createComment(workspaceId, pageId, trimmed);
-      setComments((prev) => [...prev, created]);
+      setComments((prev) => {
+        // Prevent race-condition duplicate if real-time SSE event arrived first
+        if (prev.some((c) => c.id === created.id)) {
+          return prev;
+        }
+        return [...prev, created];
+      });
       setNewCommentBody("");
       addToast({
         message: "Comment added",
@@ -193,12 +347,21 @@ export function CommentPanel({
     });
   };
 
-  // Filtered comments
-  const filteredComments = comments.filter((c) => {
-    if (filter === "unresolved") return !c.resolvedAt;
-    if (filter === "resolved") return Boolean(c.resolvedAt);
-    return true;
-  });
+  // Filtered comments (guaranteeing 100% unique React keys by ID)
+  const filteredComments = useMemo(() => {
+    const map = new Map<string, CommentItemData>();
+    for (const c of comments) {
+      if (!c || !c.id) continue;
+      if (filter === "unresolved" && c.resolvedAt) continue;
+      if (filter === "resolved" && !c.resolvedAt) continue;
+      map.set(c.id, c);
+    }
+    const list = Array.from(map.values());
+    list.sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+    return list;
+  }, [comments, filter]);
 
   const unresolvedCount = comments.filter((c) => !c.resolvedAt).length;
 
@@ -304,6 +467,7 @@ export function CommentPanel({
             <CommentItem
               key={comment.id}
               comment={comment}
+              isHighlighted={highlightedCommentId === comment.id}
               currentUserId={currentUserId}
               currentUserRole={currentUserRole}
               onEdit={handleEditComment}

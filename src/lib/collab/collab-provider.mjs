@@ -49,20 +49,38 @@ export async function fetchCollabToken(workspaceId, pageId) {
  * @returns {string}
  */
 export function getDefaultCollabWsUrl() {
+  let configuredUrl = '';
   try {
-    const configuredUrl = process.env.NEXT_PUBLIC_COLLAB_WS_URL;
-    if (configuredUrl && configuredUrl.trim().length > 0) {
-      return configuredUrl.trim();
+    if (typeof process !== 'undefined' && process?.env?.NEXT_PUBLIC_COLLAB_WS_URL) {
+      configuredUrl = process.env.NEXT_PUBLIC_COLLAB_WS_URL.trim();
     }
   } catch {
     // Ignore ReferenceError if process is undefined in unbundled browser ESM
   }
+
   if (typeof window !== 'undefined' && window.location) {
-    if (window.location.protocol === 'https:') {
+    const isHttps = window.location.protocol === 'https:';
+
+    if (isHttps) {
+      // Respect an explicitly configured valid secure wss:// URL (not insecure ws://)
+      if (configuredUrl && /^wss:\/\//i.test(configuredUrl)) {
+        return configuredUrl.replace(/\/+$/, '');
+      }
+      // Never allow an insecure ws:// (such as ws://localhost build-time default) to override HTTPS runtime detection
       return `wss://${window.location.host}/collab-ws`;
+    }
+
+    // HTTP browser sessions (local development / LAN)
+    if (configuredUrl && configuredUrl.length > 0) {
+      return configuredUrl.replace(/\/+$/, '');
     }
     const hostname = window.location.hostname || 'localhost';
     return `ws://${hostname}:1234`;
+  }
+
+  // Non-browser / SSR / Node environment fallback
+  if (configuredUrl && configuredUrl.length > 0) {
+    return configuredUrl.replace(/\/+$/, '');
   }
   return 'ws://localhost:1234';
 }

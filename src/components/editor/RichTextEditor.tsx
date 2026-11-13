@@ -34,7 +34,8 @@ import {
   type CollabWebsocketProvider,
   type SaveStatusDetails,
 } from "@/lib/collab/collab-provider";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { WorkspacePageEvent } from "@/lib/events/workspace-events";
 
 export interface CurrentEditorUser {
   id: string;
@@ -91,8 +92,12 @@ export function RichTextEditor({
   const [serverSaveStatus, setServerSaveStatus] = useState<"saved" | "saving" | "error">("saved");
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
 
+  const searchParams = useSearchParams();
+
   // Comments panel state
-  const [isCommentsOpen, setIsCommentsOpen] = useState<boolean>(false);
+  const [isCommentsOpen, setIsCommentsOpen] = useState<boolean>(() => {
+    return searchParams.get("openComments") === "true";
+  });
   const [commentsCount, setCommentsCount] = useState<number>(0);
 
   // Version history state
@@ -103,6 +108,42 @@ export function RichTextEditor({
   const [isRestoring, setIsRestoring] = useState<boolean>(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [historyRefreshKey, setHistoryRefreshKey] = useState<number>(0);
+
+  // Synchronize comment panel state on custom event (e.g. clicking incoming notification)
+  useEffect(() => {
+    const handleOpenComments = (e: Event) => {
+      const customEvent = e as CustomEvent<{ pageId?: string; commentId?: string }>;
+      if (!customEvent.detail?.pageId || customEvent.detail.pageId === pageId) {
+        setIsCommentsOpen(true);
+        setIsHistoryOpen(false);
+      }
+    };
+
+    window.addEventListener("open-comment-panel", handleOpenComments);
+    return () => {
+      window.removeEventListener("open-comment-panel", handleOpenComments);
+    };
+  }, [pageId]);
+
+  // Synchronize comments count live from real-time workspace SSE events
+  useEffect(() => {
+    const handleWorkspaceEvent = (e: Event) => {
+      const customEvent = e as CustomEvent<WorkspacePageEvent>;
+      const event = customEvent.detail;
+      if (!event) return;
+
+      if (event.type === "COMMENT_CREATED" && event.pageId === pageId) {
+        setCommentsCount((prev) => prev + 1);
+      } else if (event.type === "COMMENT_DELETED" && event.pageId === pageId) {
+        setCommentsCount((prev) => Math.max(0, prev - 1));
+      }
+    };
+
+    window.addEventListener("workspace-sse-event", handleWorkspaceEvent);
+    return () => {
+      window.removeEventListener("workspace-sse-event", handleWorkspaceEvent);
+    };
+  }, [pageId]);
 
   // Version preview selection handler
   const handleSelectVersionForPreview = useCallback(
@@ -176,13 +217,18 @@ export function RichTextEditor({
   // Set local user details in awareness
   useEffect(() => {
     if (!awareness || !currentUser) return;
-    awareness.setLocalStateField("user", {
+    const userData = {
       id: currentUser.id,
       name: currentUser.name,
       email: currentUser.email,
       color: userColor.hex,
       role: currentUser.role,
-    });
+    };
+    if (awareness.getLocalState() === null) {
+      awareness.setLocalState({ user: userData });
+    } else {
+      awareness.setLocalStateField("user", userData);
+    }
   }, [awareness, currentUser, userColor]);
 
   const providerRef = useRef<CollabWebsocketProvider | null>(null);
@@ -336,8 +382,11 @@ export function RichTextEditor({
         CollaborationCursor.configure({
           provider: { awareness },
           user: {
+            id: currentUser?.id,
             name: currentUser?.name || "Anonymous",
+            email: currentUser?.email,
             color: userColor.hex,
+            role: currentUser?.role,
           },
         }),
       ],
@@ -351,24 +400,8 @@ export function RichTextEditor({
         },
       },
     },
-    [ydoc, awareness, isEditable, currentUser?.name, userColor.hex]
+    [ydoc, awareness, isEditable, currentUser?.id, currentUser?.name, currentUser?.email, currentUser?.role, userColor.hex]
   );
-
-  // Clean up per-page Awareness and Y.Doc instances after provider teardown on page switch or unmount
-  useEffect(() => {
-    return () => {
-      try {
-        awareness.destroy();
-      } catch {
-        // Ignore double-destroy on Fast Refresh
-      }
-      try {
-        ydoc.destroy();
-      } catch {
-        // Ignore double-destroy on Fast Refresh
-      }
-    };
-  }, [awareness, ydoc]);
 
   if (!isMounted) {
     return (

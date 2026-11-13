@@ -229,23 +229,27 @@ export function AppShell({
                 </div>
               ) : (
                 <>
-                  <Link href="/login">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 px-2.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
-                    >
-                      Login
-                    </Button>
+                  <Link
+                    href="/login"
+                    onClick={async () => {
+                      try {
+                        await fetch("/api/auth/logout", { method: "POST" });
+                      } catch {}
+                    }}
+                    className="inline-flex items-center justify-center font-medium rounded-md transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] h-8 px-2.5 text-xs cursor-pointer"
+                  >
+                    Login
                   </Link>
-                  <Link href="/signup">
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      className="h-8 px-3 text-xs bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white border-[var(--accent)]"
-                    >
-                      Signup
-                    </Button>
+                  <Link
+                    href="/signup"
+                    onClick={async () => {
+                      try {
+                        await fetch("/api/auth/logout", { method: "POST" });
+                      } catch {}
+                    }}
+                    className="inline-flex items-center justify-center font-medium rounded-md transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white border border-[var(--accent)] h-8 px-3 text-xs shadow-2xs cursor-pointer"
+                  >
+                    Signup
                   </Link>
                 </>
               )}

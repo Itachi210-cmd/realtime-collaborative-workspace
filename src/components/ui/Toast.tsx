@@ -12,6 +12,8 @@ export interface ToastItem {
   description?: string;
   variant?: ToastVariant;
   duration?: number;
+  onClick?: () => void;
+  actionText?: string;
 }
 
 interface ToastContextType {
@@ -30,9 +32,24 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const addToast = useCallback(
-    ({ message, description, variant = "info", duration = 4000 }: Omit<ToastItem, "id">) => {
+    ({
+      message,
+      description,
+      variant = "info",
+      duration = 4000,
+      onClick,
+      actionText,
+    }: Omit<ToastItem, "id">) => {
       const id = Math.random().toString(36).substring(2, 9);
-      const newToast: ToastItem = { id, message, description, variant, duration };
+      const newToast: ToastItem = {
+        id,
+        message,
+        description,
+        variant,
+        duration,
+        onClick,
+        actionText,
+      };
 
       setToasts((prev) => [...prev, newToast]);
 
@@ -98,13 +115,31 @@ export function ToastCard({
     info: "border-[var(--border-subtle)] bg-[var(--bg-surface)]",
   }[toast.variant || "info"];
 
+  const isClickable = Boolean(toast.onClick);
+
   return (
     <div
-      role="status"
+      role={isClickable ? "button" : "status"}
+      tabIndex={isClickable ? 0 : undefined}
       aria-live="polite"
+      onClick={() => {
+        if (toast.onClick) {
+          toast.onClick();
+          onRemove();
+        }
+      }}
+      onKeyDown={(e) => {
+        if (isClickable && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          toast.onClick?.();
+          onRemove();
+        }
+      }}
       className={cn(
-        "pointer-events-auto p-3.5 rounded-lg border shadow-md flex items-start gap-2.5 text-[var(--text-primary)] transition-all duration-200",
-        borderStyles
+        "pointer-events-auto p-3.5 rounded-lg border shadow-md flex items-start gap-2.5 text-[var(--text-primary)] transition-all duration-200 select-none",
+        borderStyles,
+        isClickable &&
+          "cursor-pointer hover:border-[var(--accent)] hover:shadow-lg focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
       )}
     >
       {icons[toast.variant || "info"]}
@@ -116,10 +151,19 @@ export function ToastCard({
             {toast.description}
           </p>
         )}
+        {toast.actionText && (
+          <p className="text-[11px] font-medium text-[var(--accent)] mt-1.5 flex items-center gap-1 group-hover:underline">
+            <span>{toast.actionText}</span>
+            <span aria-hidden="true">&rarr;</span>
+          </p>
+        )}
       </div>
 
       <button
-        onClick={onRemove}
+        onClick={(e) => {
+          e.stopPropagation();
+          onRemove();
+        }}
         className="p-1 rounded text-[var(--text-faint)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] shrink-0 transition-colors cursor-pointer"
         aria-label="Dismiss toast"
       >

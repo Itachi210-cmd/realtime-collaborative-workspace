@@ -63,15 +63,21 @@ async function run() {
   }
 
   const results = {};
-  results["phase4"] = await runSuite("tests/phase4_verify.mjs");
-  results["phase5"] = await runSuite("tests/phase5_verify.mjs");
-  results["phase6_token"] = await runSuite("tests/phase6_token_verify.mjs");
-  results["phase9_permissions"] = await runSuite("tests/phase9_permissions_verify.mjs");
+  results["collab_provider_url"] = await runSuite("scripts/verify_collab_provider_url.mjs");
+  results["collab_upgrade"] = await runSuite("scripts/verify_collab_upgrade.mjs");
+  results["profile_api"] = await runSuite("scripts/verify_profile_api.mjs");
+  results["env_secrets"] = await runSuite("scripts/verify_env_secrets.mjs");
+  results["prod_runtime"] = await runSuite("scripts/verify_prod_runtime.mjs");
 
   console.log("\n=== REGRESSION SUITE RUN COMPLETE ===");
   console.log(JSON.stringify(results, null, 2));
 
   proxy.close();
+  if (process.platform === "win32" && nextProc.pid) {
+    try {
+      spawn("taskkill", ["/pid", nextProc.pid.toString(), "/f", "/t"], { stdio: "ignore" });
+    } catch {}
+  }
   nextProc.kill("SIGINT");
   process.exit(Object.values(results).some((c) => c !== 0) ? 1 : 0);
 }

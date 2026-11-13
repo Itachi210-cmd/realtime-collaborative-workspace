@@ -16,6 +16,7 @@ import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import { PageTree } from "./PageTree";
 import { Dialog } from "@/components/ui/Dialog";
 import { Input } from "@/components/ui/Input";
+import { AccountSettingsDialog } from "@/components/settings/AccountSettingsDialog";
 import { useCurrentUser } from "@/lib/auth/useCurrentUser";
 import { PageItem, getWorkspacePages } from "@/lib/api/workspaces";
 
@@ -35,8 +36,9 @@ export function WorkspaceSidebar({
   userRole,
 }: WorkspaceSidebarProps) {
   const pathname = usePathname();
-  const { user, logout } = useCurrentUser();
+  const { user, logout, refreshUser } = useCurrentUser();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [pages, setPages] = useState<PageItem[]>([]);
 
@@ -139,8 +141,20 @@ export function WorkspaceSidebar({
         {/* Footer Profile & Settings */}
         <div className="p-2.5 sm:p-3 border-t border-[var(--border-subtle)] bg-[var(--bg-sidebar)]">
           <div className="flex items-center justify-between gap-1">
-            <div className="flex items-center gap-2.5 min-w-0 flex-1">
-              <div className="w-6 h-6 rounded-full bg-[var(--accent-light)] border border-[var(--accent-border)] flex items-center justify-center text-[10px] font-semibold text-[var(--accent)] shrink-0">
+            <div
+              onClick={() => setIsSettingsOpen(true)}
+              className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer hover:opacity-85 transition-opacity select-none"
+              title="Open Account Settings"
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setIsSettingsOpen(true);
+                }
+              }}
+            >
+              <div className="w-6 h-6 rounded-full bg-[var(--accent-light)] border border-[var(--accent-border)] flex items-center justify-center text-[10px] font-semibold text-[var(--accent)] shrink-0 select-none">
                 {userInitials}
               </div>
               <div className="flex flex-col min-w-0 flex-1">
@@ -153,13 +167,15 @@ export function WorkspaceSidebar({
               </div>
             </div>
             <div className="flex items-center gap-0.5 shrink-0">
-              <Link
-                href="/dashboard"
-                className="p-1.5 rounded-md text-[var(--text-faint)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
-                title="Settings"
+              <button
+                type="button"
+                onClick={() => setIsSettingsOpen(true)}
+                className="p-1.5 rounded-md text-[var(--text-faint)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
+                title="Account Settings"
+                aria-label="Account Settings"
               >
                 <Settings className="w-3.5 h-3.5" />
-              </Link>
+              </button>
               <button
                 onClick={logout}
                 className="p-1.5 rounded-md text-[var(--text-faint)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
@@ -225,6 +241,14 @@ export function WorkspaceSidebar({
           </div>
         </div>
       </Dialog>
+
+      {/* Account Settings Dialog */}
+      <AccountSettingsDialog
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        user={user}
+        onProfileUpdated={refreshUser}
+      />
     </>
   );
 }

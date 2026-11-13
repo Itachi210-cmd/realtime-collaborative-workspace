@@ -4,7 +4,10 @@ import type { Page } from "@prisma/client";
 export type WorkspacePageEventType =
   | "PAGE_CREATED"
   | "PAGE_UPDATED"
-  | "PAGE_DELETED";
+  | "PAGE_DELETED"
+  | "COMMENT_CREATED"
+  | "COMMENT_UPDATED"
+  | "COMMENT_DELETED";
 
 export interface PageCreatedPayload {
   type: "PAGE_CREATED";
@@ -22,10 +25,56 @@ export interface PageDeletedPayload {
   workspaceId: string;
 }
 
+export interface CommentCreatedPayload {
+  type: "COMMENT_CREATED";
+  workspaceId: string;
+  pageId: string;
+  pageTitle: string;
+  comment: {
+    id: string;
+    pageId: string;
+    authorId: string;
+    body: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    anchor?: any;
+    createdAt: string;
+    updatedAt: string;
+    resolvedAt?: string | null;
+    author: {
+      id: string;
+      name: string;
+      email?: string | null;
+    };
+  };
+}
+
+export interface CommentUpdatedPayload {
+  type: "COMMENT_UPDATED";
+  workspaceId: string;
+  pageId: string;
+  comment: {
+    id: string;
+    pageId: string;
+    body?: string;
+    updatedAt: string;
+    resolvedAt?: string | null;
+  };
+}
+
+export interface CommentDeletedPayload {
+  type: "COMMENT_DELETED";
+  workspaceId: string;
+  pageId: string;
+  commentId: string;
+}
+
 export type WorkspacePageEvent =
   | PageCreatedPayload
   | PageUpdatedPayload
-  | PageDeletedPayload;
+  | PageDeletedPayload
+  | CommentCreatedPayload
+  | CommentUpdatedPayload
+  | CommentDeletedPayload;
 
 class WorkspaceEventEmitter extends EventEmitter {
   constructor() {

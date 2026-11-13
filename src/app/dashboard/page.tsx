@@ -33,8 +33,14 @@ import {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { user } = useCurrentUser();
+  const { user, isLoading: isUserLoading } = useCurrentUser();
   const { addToast } = useToast();
+
+  useEffect(() => {
+    if (!isUserLoading && !user) {
+      window.location.href = "/login?callbackUrl=%2Fdashboard";
+    }
+  }, [user, isUserLoading]);
 
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);

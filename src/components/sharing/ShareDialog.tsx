@@ -187,8 +187,18 @@ export function ShareDialog({
         variant: "success",
       });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Failed to add member";
-      setFormError(msg);
+      const rawMsg = err instanceof Error ? err.message : "Failed to add member";
+      // Convert the existing 404 response into a clear signup-first message
+      if (
+        rawMsg.toLowerCase().includes("user not found") ||
+        rawMsg.toLowerCase().includes("not found with this email")
+      ) {
+        setFormError(
+          "No account found with this email address. The user must sign up for an account before they can be added to the workspace."
+        );
+      } else {
+        setFormError(rawMsg);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -297,9 +307,14 @@ export function ShareDialog({
           {/* Invite form - strictly for OWNER */}
           {isOwner ? (
             <form onSubmit={handleInviteSubmit} className="space-y-2 p-3 bg-[var(--bg-raised)] border border-[var(--border-subtle)] rounded-lg">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--text-primary)]">
-                <UserPlus className="w-3.5 h-3.5 text-[var(--accent)]" />
-                <span>Invite Registered User</span>
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--text-primary)]">
+                  <UserPlus className="w-3.5 h-3.5 text-[var(--accent)]" />
+                  <span>Invite Collaborator</span>
+                </div>
+                <p className="text-[11px] text-[var(--text-muted)]">
+                  Collaborators must register an account first. Enter their registered account email to add them.
+                </p>
               </div>
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                 <Input

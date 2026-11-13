@@ -18,6 +18,7 @@ import { Dialog } from "@/components/ui/Dialog";
 
 interface CommentItemProps {
   comment: CommentItemData;
+  isHighlighted?: boolean;
   currentUserId?: string;
   currentUserRole?: string;
   onEdit: (commentId: string, newBody: string) => Promise<void>;
@@ -27,6 +28,7 @@ interface CommentItemProps {
 
 export function CommentItem({
   comment,
+  isHighlighted = false,
   currentUserId,
   currentUserRole = "VIEWER",
   onEdit,
@@ -135,11 +137,14 @@ export function CommentItem({
   return (
     <>
       <div
+        id={`comment-${comment.id}`}
         className={cn(
-          "group relative p-3 rounded-md border transition-colors text-left",
+          "group relative p-3 rounded-md border transition-all text-left duration-200",
           isResolved
             ? "bg-[var(--bg-raised)]/60 border-[var(--border-subtle)] opacity-70"
-            : "bg-[var(--bg-surface)] border border-[var(--border-subtle)] hover:border-[var(--border-strong)]"
+            : "bg-[var(--bg-surface)] border border-[var(--border-subtle)] hover:border-[var(--border-strong)]",
+          isHighlighted &&
+            "ring-2 ring-[var(--accent)] ring-offset-1 ring-offset-[var(--bg-surface)] shadow-md border-[var(--accent)]"
         )}
       >
         {/* Comment Header */}

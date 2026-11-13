@@ -18,8 +18,13 @@ const awarenessStatesToArray = (states: Map<number, Record<string, any>>) => {
 };
 
 export interface CollabCursorUser {
+  id?: string | null;
   name?: string | null;
   color?: string | null;
+  email?: string | null;
+  role?: string | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
 }
 
 export interface CollabCursorOptions {
@@ -68,7 +73,13 @@ export const CollaborationCursor = Extension.create<CollabCursorOptions>({
           label.setAttribute("style", `background-color: ${user.color}`);
         }
         label.insertBefore(document.createTextNode(user.name || "Anonymous"), null);
+
+        const nonBreakingSpace1 = document.createTextNode("\u2060");
+        const nonBreakingSpace2 = document.createTextNode("\u2060");
+
+        cursor.insertBefore(nonBreakingSpace1, null);
         cursor.insertBefore(label, null);
+        cursor.insertBefore(nonBreakingSpace2, null);
         return cursor;
       },
       selectionRender: defaultSelectionBuilder,
@@ -86,7 +97,11 @@ export const CollaborationCursor = Extension.create<CollabCursorOptions>({
       updateUser: (attributes: CollabCursorUser) => () => {
         this.options.user = attributes;
         if (this.options.provider?.awareness) {
-          this.options.provider.awareness.setLocalStateField("user", this.options.user);
+          const currentLocalUser = this.options.provider.awareness.getLocalState()?.user;
+          this.options.provider.awareness.setLocalStateField("user", {
+            ...(typeof currentLocalUser === "object" ? currentLocalUser : {}),
+            ...this.options.user,
+          });
         }
         return true;
       },
@@ -106,7 +121,11 @@ export const CollaborationCursor = Extension.create<CollabCursorOptions>({
             awarenessCleanupMap.delete(this.editor);
           }
 
-          awareness.setLocalStateField("user", this.options.user);
+          const currentLocalUser = awareness.getLocalState()?.user;
+          awareness.setLocalStateField("user", {
+            ...(typeof currentLocalUser === "object" ? currentLocalUser : {}),
+            ...this.options.user,
+          });
           const updateUsers = () => {
             this.storage.users = awarenessStatesToArray(awareness.states);
           };

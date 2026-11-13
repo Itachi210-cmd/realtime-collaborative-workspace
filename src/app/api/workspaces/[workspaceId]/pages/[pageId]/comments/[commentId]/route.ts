@@ -9,6 +9,7 @@ import {
   verifySameOriginCsrf,
 } from "@/lib/security/api-guard";
 import { logStructured } from "@/lib/logger.mjs";
+import { workspaceEvents } from "@/lib/events/workspace-events";
 
 interface RouteParams {
   params: Promise<{
@@ -135,6 +136,19 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       },
     });
 
+    workspaceEvents.emitWorkspaceEvent(workspaceId, {
+      type: "COMMENT_UPDATED",
+      workspaceId,
+      pageId,
+      comment: {
+        id: updatedComment.id,
+        pageId: updatedComment.pageId,
+        body: updatedComment.body,
+        updatedAt: updatedComment.updatedAt.toISOString(),
+        resolvedAt: updatedComment.resolvedAt ? updatedComment.resolvedAt.toISOString() : null,
+      },
+    });
+
     return NextResponse.json(
       {
         message: "Comment updated successfully",
@@ -209,6 +223,13 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     // 4. Delete comment
     await prisma.comment.delete({
       where: { id: commentId },
+    });
+
+    workspaceEvents.emitWorkspaceEvent(workspaceId, {
+      type: "COMMENT_DELETED",
+      workspaceId,
+      pageId,
+      commentId,
     });
 
     return NextResponse.json(

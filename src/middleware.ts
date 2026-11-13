@@ -44,12 +44,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // 2. Auth routes: /login, /signup (Redirect authenticated users to /dashboard)
-  const isAuthRoute = pathname === "/login" || pathname === "/signup";
-  if (isAuthRoute && isAuthenticated) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
-  }
-
   return NextResponse.next();
 }
 

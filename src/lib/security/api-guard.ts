@@ -205,12 +205,5 @@ export async function readJsonBody<T = unknown>(
   }
 }
 
-export function sanitizeCallbackUrl(rawUrl: string | null | undefined): string {
-  if (!rawUrl || typeof rawUrl !== "string") return "/dashboard";
-  const trimmed = rawUrl.trim();
-  if (!trimmed.startsWith("/") || trimmed.startsWith("//") || trimmed.startsWith("/\\")) {
-    return "/dashboard";
-  }
-  return trimmed;
-}
+export { sanitizeCallbackUrl } from "./url";
 

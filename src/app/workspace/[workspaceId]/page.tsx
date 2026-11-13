@@ -8,7 +8,6 @@ import {
   FileText,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
-import { Button } from "@/components/ui/Button";
 import { checkWorkspaceAccess } from "@/lib/auth/workspace-auth";
 import { prisma } from "@/lib/prisma";
 import { RichTextEditor } from "@/components/editor/RichTextEditor";
@@ -51,10 +50,11 @@ async function WorkspaceDocument({
             {authCheck.error || "You do not have permission to view this workspace."}
           </p>
         </div>
-        <Link href="/dashboard">
-          <Button variant="primary" size="sm">
-            Back to Dashboard
-          </Button>
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center justify-center font-medium rounded-md transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] border border-[var(--accent)] text-xs px-2.5 py-1 gap-1.5 h-7 shadow-xs cursor-pointer"
+        >
+          Back to Dashboard
         </Link>
       </div>
     );
@@ -95,16 +95,18 @@ async function WorkspaceDocument({
 
           <div className="pt-2 flex items-center justify-center gap-2">
             {workspacePages.length > 0 && (
-              <Link href={`/workspace/${workspaceId}?page=${workspacePages[0].id}`}>
-                <Button variant="primary" size="sm">
-                  <span>Open &ldquo;{workspacePages[0].title}&rdquo;</span>
-                </Button>
+              <Link
+                href={`/workspace/${workspaceId}?page=${workspacePages[0].id}`}
+                className="inline-flex items-center justify-center font-medium rounded-md transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] border border-[var(--accent)] text-xs px-2.5 py-1 gap-1.5 h-7 shadow-xs cursor-pointer"
+              >
+                <span>Open &ldquo;{workspacePages[0].title}&rdquo;</span>
               </Link>
             )}
-            <Link href="/dashboard">
-              <Button variant="secondary" size="sm">
-                <span>Dashboard</span>
-              </Button>
+            <Link
+              href="/dashboard"
+              className="inline-flex items-center justify-center font-medium rounded-md transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 bg-[var(--bg-raised)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] text-xs px-2.5 py-1 gap-1.5 h-7 cursor-pointer"
+            >
+              <span>Dashboard</span>
             </Link>
           </div>
         </div>
@@ -145,10 +147,11 @@ async function WorkspaceDocument({
             </p>
           </div>
           <div className="pt-2">
-            <Link href={`/workspace/${workspaceId}`}>
-              <Button variant="primary" size="sm">
-                <span>View Workspace Overview</span>
-              </Button>
+            <Link
+              href={`/workspace/${workspaceId}`}
+              className="inline-flex items-center justify-center font-medium rounded-md transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] border border-[var(--accent)] text-xs px-2.5 py-1 gap-1.5 h-7 shadow-xs cursor-pointer"
+            >
+              <span>View Workspace Overview</span>
             </Link>
           </div>
         </div>

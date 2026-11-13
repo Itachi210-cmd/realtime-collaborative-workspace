@@ -86,7 +86,7 @@ export function CollaboratorAvatars({
           clientId === localClientId || (currentUserId && u.id === currentUserId)
         );
 
-        if (seenUserIds.has(userId) && !isSelf) {
+        if (seenUserIds.has(userId)) {
           return;
         }
         seenUserIds.add(userId);

@@ -128,13 +128,17 @@ This guide provides reproducible instructions for running **Real-Time Collaborat
 ### Step 2: Deploy Blueprint on Render Free (User Action)
 1. Push your approved repository to GitHub/GitLab.
 2. In Render Dashboard -> **New +** -> **Blueprint**, select the repo (`render.yaml` is at repo root).
-3. Populate the six `sync: false` secrets/URLs in Render Environment Settings:
-   - `DATABASE_URL`: Neon TLS connection string (`?sslmode=require`)
+3. Populate the environment variables in Render Environment Settings:
+   - `DATABASE_URL`: Neon TLS pooled connection string (`?sslmode=require`)
    - `AUTH_SECRET`: 48-byte random `base64url` string
    - `INTERNAL_RPC_SECRET`: 64-char random lowercase hex string
-   - `NEXT_PUBLIC_APP_URL`: `https://<your-render-service>.onrender.com`
-   - `NEXT_PUBLIC_COLLAB_WS_URL`: `wss://<your-render-service>.onrender.com/collab-ws`
-   - `COLLAB_ALLOWED_ORIGINS`: `https://<your-render-service>.onrender.com`
+   - **Production App & Collaboration WebSocket URLs (Exact values for Render deployment)**:
+     ```env
+     NEXT_PUBLIC_APP_URL=https://collab-workspace-h7od.onrender.com
+     COLLAB_ALLOWED_ORIGINS=https://collab-workspace-h7od.onrender.com
+     NEXT_PUBLIC_COLLAB_WS_URL=wss://collab-workspace-h7od.onrender.com
+     ```
+   - `REDIS_ENABLED`: `false` (for single-container ₹0 deployment)
 4. Trigger **Deploy** (Docker build runs `npx prisma generate && npm run build` and starts `node scripts/prod-entrypoint.mjs`).
 
 ### Step 3: Post-Deploy Smoke Checks (User Action)
